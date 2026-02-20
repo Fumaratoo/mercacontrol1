@@ -892,16 +892,62 @@ function AcuerdosView({ acuerdos, empresas, sedes, onUpdateAcuerdos, canEdit, to
   const [filtroSedeId, setFiltroSedeId] = useState("");
   const [showForm, setShowForm]         = useState(false);
   const [editando, setEditando]         = useState(null);
+  const [showExport, setShowExport]     = useState(false);
+  const [exportFiltro, setExportFiltro] = useState("todo");
+  const [exportSedeId, setExportSedeId] = useState("");
+  const [exportEmpId, setExportEmpId]   = useState("");
 
-  const empActivas  = empresas.filter(e => e.activa);
+  const empActivas   = empresas.filter(e => e.activa);
   const sedesActivas = sedes.filter(s => s.activa);
-  const totalHoras  = (h) => DIAS.reduce((s, d) => s + (Number(h?.[d]) || 0), 0);
+  const totalHoras   = (h) => DIAS.reduce((s, d) => s + (Number(h?.[d]) || 0), 0);
 
   const acuerdosFilt = acuerdos.filter(a => {
     if (filtroEmpId  && a.empresaId !== filtroEmpId)  return false;
     if (filtroSedeId && a.sedeId    !== filtroSedeId) return false;
     return true;
   });
+
+  const exportarAcuerdos = () => {
+    const escape = v => {
+      const s = String(v ?? "");
+      return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    let datos = [...acuerdos];
+    let sufijo = "Todo";
+    if (exportFiltro === "sede" && exportSedeId) {
+      datos = datos.filter(a => a.sedeId === exportSedeId);
+      sufijo = "Sede_" + (sedes.find(s => s.id === exportSedeId)?.nombre || "");
+    } else if (exportFiltro === "empresa" && exportEmpId) {
+      datos = datos.filter(a => a.empresaId === exportEmpId);
+      sufijo = "Empresa_" + (empresas.find(e => e.id === exportEmpId)?.nombre || "");
+    }
+    const headers = ["Empresa","Sede","Lun","Mar","Mié","Jue","Vie","Sáb","Dom","Total h/semana","Notas"];
+    const rows = datos.map(a => {
+      const emp  = empresas.find(e => e.id === a.empresaId);
+      const sede = sedes.find(s => s.id === a.sedeId);
+      return [
+        emp?.nombre  || "—", sede?.nombre || "—",
+        Number(a.horas?.lunes || 0),
+        Number(a.horas?.martes || 0),
+        Number(a.horas?.["miércoles"] || 0),
+        Number(a.horas?.jueves || 0),
+        Number(a.horas?.viernes || 0),
+        Number(a.horas?.["sábado"] || 0),
+        Number(a.horas?.domingo || 0),
+        totalHoras(a.horas),
+        a.notas || "",
+      ].map(escape).join(",");
+    });
+    const fecha = new Date().toISOString().slice(0,10);
+    const csv  = "\uFEFF" + [headers.join(","), ...rows].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url  = URL.createObjectURL(blob);
+    const el   = document.createElement("a");
+    el.href = url; el.download = `Canaveral_Acuerdos_${sufijo}_${fecha}.csv`;
+    document.body.appendChild(el); el.click();
+    document.body.removeChild(el); URL.revokeObjectURL(url);
+    setShowExport(false);
+  };
 
   // Resumen contextual según filtro activo
   const resumen = useMemo(() => {
@@ -961,18 +1007,95 @@ function AcuerdosView({ acuerdos, empresas, sedes, onUpdateAcuerdos, canEdit, to
   return (
     <div style={{ maxWidth: 800, margin: "0 auto", paddingBottom: 40 }}>
       {topBar}
+
+      {/* Modal exportar */}
+      {showExport && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+          onClick={e => e.target === e.currentTarget && setShowExport(false)}>
+          <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 440, overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,.25)" }}>
+            <div style={{ background: "#05200b", padding: "18px 22px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ color: "#fff", fontWeight: 800, fontSize: 17 }}>📊 Exportar Acuerdos</div>
+              <button onClick={() => setShowExport(false)} style={{ background: "rgba(255,255,255,.15)", border: "none", color: "#fff", width: 30, height: 30, borderRadius: 8, cursor: "pointer", fontWeight: 800 }}>✕</button>
+            </div>
+            <div style={{ padding: 22 }}>
+              <p style={{ fontSize: 13, color: T.slate, marginBottom: 16 }}>Selecciona qué acuerdos incluir en el Excel:</p>
+
+              {/* Opciones */}
+              {[
+                { k: "todo",    label: "🌐 Toda la compañía",   desc: `${acuerdos.length} acuerdos` },
+                { k: "sede",    label: "📍 Filtrar por sede",    desc: "Solo una sede" },
+                { k: "empresa", label: "🏭 Filtrar por empresa", desc: "Solo una empresa" },
+              ].map(op => (
+                <div key={op.k} onClick={() => setExportFiltro(op.k)}
+                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10, marginBottom: 8, cursor: "pointer",
+                    background: exportFiltro === op.k ? T.amberLight : T.bg,
+                    border: `2px solid ${exportFiltro === op.k ? T.amber : T.border}` }}>
+                  <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${exportFiltro === op.k ? T.amber : T.border}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {exportFiltro === op.k && <div style={{ width: 9, height: 9, borderRadius: "50%", background: T.amber }} />}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: T.navy }}>{op.label}</div>
+                    <div style={{ fontSize: 12, color: T.muted }}>{op.desc}</div>
+                  </div>
+                </div>
+              ))}
+
+              {/* Selector sede */}
+              {exportFiltro === "sede" && (
+                <select value={exportSedeId} onChange={e => setExportSedeId(e.target.value)}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${T.border}`, fontSize: 14, background: "#fff", color: T.navy, marginTop: 4 }}>
+                  <option style={{ color: T.navy }} value="">-- Selecciona sede --</option>
+                  {sedesActivas.filter(s => acuerdos.some(a => a.sedeId === s.id)).map(s => (
+                    <option style={{ color: T.navy }} key={s.id} value={s.id}>{s.nombre} ({acuerdos.filter(a => a.sedeId === s.id).length} acuerdos)</option>
+                  ))}
+                </select>
+              )}
+
+              {/* Selector empresa */}
+              {exportFiltro === "empresa" && (
+                <select value={exportEmpId} onChange={e => setExportEmpId(e.target.value)}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${T.border}`, fontSize: 14, background: "#fff", color: T.navy, marginTop: 4 }}>
+                  <option style={{ color: T.navy }} value="">-- Selecciona empresa --</option>
+                  {empActivas.filter(e => acuerdos.some(a => a.empresaId === e.id)).map(e => (
+                    <option style={{ color: T.navy }} key={e.id} value={e.id}>{e.nombre} ({acuerdos.filter(a => a.empresaId === e.id).length} sedes)</option>
+                  ))}
+                </select>
+              )}
+
+              <div style={{ marginTop: 8, padding: "10px 14px", background: "#f0fdf4", borderRadius: 8, fontSize: 12, color: "#166534" }}>
+                💡 Se descarga como <strong>.csv</strong> — Excel lo abre directo con todas las columnas organizadas
+              </div>
+
+              <button onClick={exportarAcuerdos}
+                disabled={(exportFiltro === "sede" && !exportSedeId) || (exportFiltro === "empresa" && !exportEmpId)}
+                style={{ width: "100%", marginTop: 16, padding: "13px", borderRadius: 10, border: "none",
+                  background: (exportFiltro === "sede" && !exportSedeId) || (exportFiltro === "empresa" && !exportEmpId) ? "#94a3b8" : "#16a34a",
+                  color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
+                📥 Descargar Excel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
         <div>
           <h2 style={{ fontSize: 20, fontWeight: 900, color: T.navy, margin: 0 }}>🤝 Acuerdos Comerciales</h2>
           <p style={{ fontSize: 13, color: T.muted, margin: "4px 0 0" }}>Horas pactadas por empresa, sede y día</p>
         </div>
-        {canEdit && (
-          <button onClick={() => { setEditando(null); setShowForm(true); }} style={{
-            padding: "10px 20px", borderRadius: 10, border: "none",
-            background: T.amber, color: T.navy, fontWeight: 800, fontSize: 14, cursor: "pointer"
-          }}>+ Nuevo acuerdo</button>
-        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setShowExport(true)} style={{
+            padding: "9px 16px", borderRadius: 10, border: "none",
+            background: "#16a34a", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer"
+          }}>📊 Excel</button>
+          {canEdit && (
+            <button onClick={() => { setEditando(null); setShowForm(true); }} style={{
+              padding: "9px 16px", borderRadius: 10, border: "none",
+              background: T.amber, color: T.navy, fontWeight: 800, fontSize: 13, cursor: "pointer"
+            }}>+ Nuevo acuerdo</button>
+          )}
+        </div>
       </div>
 
       {/* Filtros */}
