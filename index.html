@@ -247,23 +247,21 @@ const fmtDateLong = (ts) => new Date(ts).toLocaleDateString("es-CO", { weekday: 
 
 // ─── Storage Hook ─────────────────────────────────────────────────────────────
 function useSharedStorage(key, initial) {
-  const [val, setVal] = useState(initial);
-  const [loaded, setLoaded] = useState(false);
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await window.storage.get(key, true);
-        if (r) setVal(JSON.parse(r.value));
-      } catch (_) {}
-      setLoaded(true);
-    })();
-  }, [key]);
+  const [val, setVal] = useState(() => {
+    try {
+      const stored = localStorage.getItem(key);
+      return stored ? JSON.parse(stored) : initial;
+    } catch (_) { return initial; }
+  });
+  const [loaded, setLoaded] = useState(true);
+
   const save = useCallback(async (v) => {
     const next = typeof v === "function" ? v(val) : v;
     setVal(next);
-    try { await window.storage.set(key, JSON.stringify(next), true); } catch (_) {}
+    try { localStorage.setItem(key, JSON.stringify(next)); } catch (_) {}
     return next;
   }, [key, val]);
+
   return [val, save, loaded];
 }
 
@@ -978,26 +976,26 @@ function AcuerdosView({ acuerdos, empresas, sedes, onUpdateAcuerdos, canEdit, to
       </div>
 
       {/* Filtros */}
-      <div style={{ background: T.navy, borderRadius: 14, padding: "16px 18px", marginBottom: 16, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <span style={{ color: "rgba(255,255,255,.6)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, whiteSpace: "nowrap" }}>🔍 Filtrar por</span>
+      <div style={{ background: T.navy, borderRadius: 14, padding: "14px 18px", marginBottom: 16, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ color: "rgba(255,255,255,.7)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, whiteSpace: "nowrap" }}>🔍 Filtrar por</span>
         <select value={filtroEmpId} onChange={e => setFiltroEmpId(e.target.value)}
-          style={{ flex: 1, minWidth: 180, padding: "10px 14px", borderRadius: 8, border: `2px solid ${filtroEmpId ? T.amber : "rgba(255,255,255,.15)"}`, fontSize: 13, background: "#fff", color: T.navy, fontWeight: filtroEmpId ? 700 : 400, outline: "none" }}>
-          <option value="">🏭 Todas las empresas</option>
+          style={{ flex: 1, minWidth: 180, padding: "9px 12px", borderRadius: 8, border: `2px solid ${filtroEmpId ? T.amber : "transparent"}`, fontSize: 13, background: "#ffffff", color: "#05200b", fontWeight: 400, outline: "none" }}>
+          <option style={{ background: "#ffffff", color: "#05200b" }} value="">🏭 Todas las empresas</option>
           {empActivas.filter(e => acuerdos.some(a => a.empresaId === e.id)).map(e => (
-            <option key={e.id} value={e.id}>{e.nombre}</option>
+            <option style={{ background: "#ffffff", color: "#05200b" }} key={e.id} value={e.id}>{e.nombre}</option>
           ))}
         </select>
         <select value={filtroSedeId} onChange={e => setFiltroSedeId(e.target.value)}
-          style={{ flex: 1, minWidth: 160, padding: "10px 14px", borderRadius: 8, border: `2px solid ${filtroSedeId ? T.amber : "rgba(255,255,255,.15)"}`, fontSize: 13, background: "#fff", color: T.navy, fontWeight: filtroSedeId ? 700 : 400, outline: "none" }}>
-          <option value="">📍 Todas las sedes</option>
+          style={{ flex: 1, minWidth: 160, padding: "9px 12px", borderRadius: 8, border: `2px solid ${filtroSedeId ? T.amber : "transparent"}`, fontSize: 13, background: "#ffffff", color: "#05200b", fontWeight: 400, outline: "none" }}>
+          <option style={{ background: "#ffffff", color: "#05200b" }} value="">📍 Todas las sedes</option>
           {sedesActivas.filter(s => acuerdos.some(a => a.sedeId === s.id)).map(s => (
-            <option key={s.id} value={s.id}>{s.nombre}</option>
+            <option style={{ background: "#ffffff", color: "#05200b" }} key={s.id} value={s.id}>{s.nombre}</option>
           ))}
         </select>
         {(filtroEmpId || filtroSedeId) && (
           <button onClick={() => { setFiltroEmpId(""); setFiltroSedeId(""); }}
-            style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-            ✕ Limpiar filtros
+            style={{ padding: "9px 14px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            ✕ Limpiar
           </button>
         )}
       </div>
