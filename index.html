@@ -276,6 +276,26 @@ function useSharedStorage(key, initial) {
   return [val, save, loaded];
 }
 
+// ─── Theme ────────────────────────────────────────────────────────────────────
+const T = {
+  navy:       "#05200b",
+  navyMid:    "#1C5A2A",
+  brand:      "#7dd105",
+  brandLight: "rgba(125,209,5,.15)",
+  amber:      "#f59e0b",
+  amberLight: "#fef3c7",
+  white:      "#ffffff",
+  bg:         "#f8fafc",
+  border:     "#e2e8f0",
+  slate:      "#64748b",
+  muted:      "#94a3b8",
+  red:        "#ef4444",
+  redLight:   "#fee2e2",
+  green:      "#16a34a",
+  greenLight: "#dcfce7",
+  blue:       "#0ea5e9",
+};
+
 // ─── Online/Offline Hook ──────────────────────────────────────────────────────
 function useOnlineStatus() {
   const [online, setOnline] = useState(() => navigator.onLine);
