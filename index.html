@@ -151,7 +151,7 @@ async function getToken() {
   const app      = getMsal();
   const accounts = app.getAllAccounts();
   if (!accounts.length) throw new Error("No hay sesión activa");
-  const req = { scopes: ["Sites.ReadWrite.All", "User.Read"], account: accounts[0] };
+  const req = { scopes: ["User.Read"], account: accounts[0] };
   try   { return (await app.acquireTokenSilent(req)).accessToken; }
   catch { return (await app.acquireTokenPopup(req)).accessToken;  }
 }
@@ -243,35 +243,20 @@ async function spWrite(listName, value) {
   } catch (e) { console.warn("spWrite error:", listName, e.message); }
 }
 
-// ─── Storage Hook — SharePoint + localStorage caché offline ───────────────────
+// ─── Storage Hook — localStorage (SharePoint se activa después con TIC) ────────
 function useSharedStorage(key, initial) {
-  const listName  = SP_LISTS[key];
-  const [val, setVal]       = useState(() => {
+  const [val, setVal] = useState(() => {
     try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : initial; }
     catch { return initial; }
   });
-  const [loaded, setLoaded] = useState(false);
-  const didLoad             = useRef(false);
-
-  useEffect(() => {
-    if (didLoad.current || !listName) { setLoaded(true); return; }
-    didLoad.current = true;
-    spRead(listName).then(remote => {
-      if (remote !== null) {
-        setVal(remote);
-        localStorage.setItem(key, JSON.stringify(remote));
-      }
-      setLoaded(true);
-    });
-  }, [key, listName]);
+  const [loaded, setLoaded] = useState(true);
 
   const save = useCallback(async (v) => {
     const next = typeof v === "function" ? v(val) : v;
     setVal(next);
-    localStorage.setItem(key, JSON.stringify(next));
-    if (listName) spWrite(listName, next);
+    try { localStorage.setItem(key, JSON.stringify(next)); } catch (_) {}
     return next;
-  }, [key, listName, val]);
+  }, [key, val]);
 
   return [val, save, loaded];
 }
@@ -985,116 +970,458 @@ function fmtWeekLabel(mon, sun) {
 }
 
 function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
+  const [modo,       setModo]       = useState("semana");
   const [weekOffset, setWeekOffset] = useState(0);
+  const [mesOffset,  setMesOffset]  = useState(0);
+  const [yearOffset, setYearOffset] = useState(0);
   const [filtroEmp,  setFiltroEmp]  = useState("");
   const [filtroSede, setFiltroSede] = useState("");
 
-  const { mon, sun } = useMemo(() => getWeekRange(weekOffset), [weekOffset]);
-  const isCurrentWeek = weekOffset === 0;
-  const today = new Date(); today.setHours(23,59,59,999);
-  const limitDay = isCurrentWeek ? today : sun; // si semana pasada, contar todos los días
+  const fmt1     = h => Math.round(h * 10) / 10;
+  const pctColor = p => p === null ? T.muted : p >= 100 ? "#16a34a" : p >= 70 ? "#ca8a04" : p >= 40 ? "#ea580c" : "#dc2626";
+  const pctBg    = p => p === null ? T.bg : p >= 100 ? "#f0fdf4" : p >= 70 ? "#fefce8" : p >= 40 ? "#fff7ed" : "#fef2f2";
 
-  // Horas reales por empresaId+sedeId en la semana seleccionada (solo visitas completas)
-  const horasReales = useMemo(() => {
-    const map = {};
-    visitas
-      .filter(v => v.status === "completo" && v.duracionMin !== null)
-      .forEach(v => {
-        const ts = new Date(v.fecha || v.entrada?.timestamp);
-        if (ts >= mon && ts <= sun) {
-          const k = `${v.empresaId}__${v.sedeId}`;
-          map[k] = (map[k] || 0) + (v.duracionMin / 60);
-        }
-      });
-    return map;
-  }, [visitas, mon, sun]);
+  // Calcular horas reales en un rango para un acuerdo específico
+  const calcReal = useCallback((empId, sedeId, desde, hasta) => {
+    return visitas
+      .filter(v => v.status === "completo" && v.duracionMin !== null &&
+        v.empresaId === empId && v.sedeId === sedeId)
+      .reduce((sum, v) => {
+        const ts = new Date(v.entrada?.timestamp || v.fecha);
+        return (ts >= desde && ts <= hasta) ? sum + v.duracionMin / 60 : sum;
+      }, 0);
+  }, [visitas]);
 
-  // Horas acordadas hasta hoy (o hasta fin de semana si es pasada)
-  const horasAcordadas = useMemo(() => {
-    const map = {};
-    acuerdos.forEach(a => {
-      const k = `${a.empresaId}__${a.sedeId}`;
-      let total = 0;
-      // Iterar cada día de la semana
-      for (let i = 0; i < 7; i++) {
-        const d = new Date(mon); d.setDate(mon.getDate() + i);
-        if (d > limitDay) break; // no contar días futuros
-        const nombreDia = DIAS_MAP[d.getDay()];
-        total += Number(a.horas?.[nombreDia] || 0);
-      }
-      map[k] = (map[k] || 0) + total;
-    });
-    return map;
-  }, [acuerdos, mon, limitDay]);
+  // Calcular horas acordadas en un rango (día a día)
+  const calcAcordado = useCallback((acuerdo, desde, hasta) => {
+    let total = 0;
+    const limit = new Date(Math.min(hasta.getTime(), new Date().setHours(23,59,59,999)));
+    const cursor = new Date(desde);
+    while (cursor <= limit) {
+      total += Number(acuerdo.horas?.[DIAS_MAP[cursor.getDay()]] || 0);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return total;
+  }, []);
 
-  // Construir filas
-  const filas = useMemo(() => {
-    return acuerdos
-      .filter(a => {
-        if (filtroEmp  && a.empresaId !== filtroEmp)  return false;
-        if (filtroSede && a.sedeId    !== filtroSede) return false;
-        return true;
-      })
+  // ── MODO SEMANA ─────────────────────────────────────────────────────────────
+  const semanaData = useMemo(() => {
+    if (modo !== "semana") return null;
+    const { mon, sun } = getWeekRange(weekOffset);
+    const isCurrent = weekOffset === 0;
+    const label = isCurrent ? "Semana actual" : fmtWeekLabel(mon, sun);
+    const filas = acuerdos
+      .filter(a => (!filtroEmp || a.empresaId === filtroEmp) && (!filtroSede || a.sedeId === filtroSede))
       .map(a => {
-        const k        = `${a.empresaId}__${a.sedeId}`;
-        const acordado = horasAcordadas[k] || 0;
-        const real     = horasReales[k]    || 0;
-        const pct      = acordado > 0 ? Math.min(100, Math.round((real / acordado) * 100)) : null;
-        const emp      = empresas.find(e => e.id === a.empresaId);
-        const sede     = sedes.find(s => s.id === a.sedeId);
-        return { key: k, emp, sede, acordado, real, pct, acuerdo: a };
+        const acordado = calcAcordado(a, mon, sun);
+        const real     = calcReal(a.empresaId, a.sedeId, mon, sun);
+        const pct      = acordado > 0 ? Math.min(100, Math.round((real/acordado)*100)) : null;
+        return { key:`${a.empresaId}__${a.sedeId}`, emp: empresas.find(e=>e.id===a.empresaId), sede: sedes.find(s=>s.id===a.sedeId), acordado, real, pct };
       })
-      .sort((a, b) => (a.pct ?? 101) - (b.pct ?? 101)); // peor cumplimiento primero
-  }, [acuerdos, horasAcordadas, horasReales, empresas, sedes, filtroEmp, filtroSede]);
+      .sort((a,b) => (a.pct??101)-(b.pct??101));
+    const totalAcord = filas.reduce((s,f)=>s+f.acordado,0);
+    const totalReal  = filas.reduce((s,f)=>s+f.real,0);
+    return { label, isCurrent, filas, totalAcord, totalReal, pctGlobal: totalAcord>0?Math.round((totalReal/totalAcord)*100):0 };
+  }, [modo, weekOffset, acuerdos, filtroEmp, filtroSede, calcAcordado, calcReal, empresas, sedes]);
 
-  // Stats globales (de las filas filtradas)
-  const stats = useMemo(() => {
-    const conAcuerdo = filas.filter(f => f.acordado > 0);
-    const cumplidas  = conAcuerdo.filter(f => f.pct >= 100).length;
-    const enRiesgo   = conAcuerdo.filter(f => f.pct < 50).length;
-    const totalAcord = filas.reduce((s, f) => s + f.acordado, 0);
-    const totalReal  = filas.reduce((s, f) => s + f.real, 0);
-    const pctGlobal  = totalAcord > 0 ? Math.round((totalReal / totalAcord) * 100) : 0;
-    return { conAcuerdo: conAcuerdo.length, cumplidas, enRiesgo, totalAcord, totalReal, pctGlobal };
-  }, [filas]);
+  // ── MODO MES — heatmap de semanas ───────────────────────────────────────────
+  const mesData = useMemo(() => {
+    if (modo !== "mes") return null;
+    const now = new Date();
+    const base = new Date(now.getFullYear(), now.getMonth() + mesOffset, 1);
+    const label = base.toLocaleDateString("es-CO", { month:"long", year:"numeric" });
+    // Obtener semanas (lun-dom) que tocan este mes
+    const primerDia = new Date(base.getFullYear(), base.getMonth(), 1);
+    const ultimoDia = new Date(base.getFullYear(), base.getMonth()+1, 0, 23, 59, 59);
+    const semanas = [];
+    // ir al lunes de la semana del primer día
+    let cur = new Date(primerDia);
+    const dow = cur.getDay();
+    cur.setDate(cur.getDate() - (dow === 0 ? 6 : dow-1));
+    while (cur <= ultimoDia) {
+      const mon = new Date(cur);
+      const sun = new Date(cur); sun.setDate(cur.getDate()+6); sun.setHours(23,59,59,999);
+      semanas.push({ mon: new Date(mon), sun, label: `${mon.getDate()}/${mon.getMonth()+1}` });
+      cur.setDate(cur.getDate()+7);
+    }
+    const acFilt = acuerdos.filter(a => (!filtroEmp||a.empresaId===filtroEmp)&&(!filtroSede||a.sedeId===filtroSede));
+    const filas = acFilt.map(a => {
+      const semsData = semanas.map(s => {
+        const ac = calcAcordado(a, s.mon, s.sun);
+        const re = calcReal(a.empresaId, a.sedeId, s.mon, s.sun);
+        return { ac, re, pct: ac>0?Math.min(100,Math.round((re/ac)*100)):null };
+      });
+      const totalAc = semsData.reduce((s,d)=>s+d.ac,0);
+      const totalRe = semsData.reduce((s,d)=>s+d.re,0);
+      const pctTotal = totalAc>0?Math.min(100,Math.round((totalRe/totalAc)*100)):null;
+      return { key:`${a.empresaId}__${a.sedeId}`, emp:empresas.find(e=>e.id===a.empresaId), sede:sedes.find(s=>s.id===a.sedeId), semsData, totalAc, totalRe, pctTotal };
+    }).sort((a,b)=>(a.pctTotal??101)-(b.pctTotal??101));
+    const gAc = filas.reduce((s,f)=>s+f.totalAc,0);
+    const gRe = filas.reduce((s,f)=>s+f.totalRe,0);
+    return { label: label.charAt(0).toUpperCase()+label.slice(1), semanas, filas, pctGlobal: gAc>0?Math.round((gRe/gAc)*100):0, totalAcord:gAc, totalReal:gRe };
+  }, [modo, mesOffset, acuerdos, filtroEmp, filtroSede, calcAcordado, calcReal, empresas, sedes]);
 
-  const pctColor = (pct) => {
-    if (pct === null) return T.muted;
+  // ── MODO AÑO — heatmap de meses ─────────────────────────────────────────────
+  const anioData = useMemo(() => {
+    if (modo !== "año") return null;
+    const now = new Date();
+    const yr = now.getFullYear() + yearOffset;
+    const meses = Array.from({length:12},(_,i)=>i).map(m => {
+      const desde = new Date(yr,m,1,0,0,0);
+      const hasta = new Date(yr,m+1,0,23,59,59);
+      const label = new Date(yr,m,1).toLocaleDateString("es-CO",{month:"short"});
+      return { m, desde, hasta, label: label.charAt(0).toUpperCase()+label.slice(1) };
+    });
+    const acFilt = acuerdos.filter(a=>(!filtroEmp||a.empresaId===filtroEmp)&&(!filtroSede||a.sedeId===filtroSede));
+    // Filas por empresa+sede
+    const filas = acFilt.map(a => {
+      const mesesData = meses.map(mes => {
+        const ac = calcAcordado(a, mes.desde, mes.hasta);
+        const re = calcReal(a.empresaId, a.sedeId, mes.desde, mes.hasta);
+        return { ac, re, pct: ac>0?Math.min(100,Math.round((re/ac)*100)):null };
+      });
+      const totalAc = mesesData.reduce((s,d)=>s+d.ac,0);
+      const totalRe = mesesData.reduce((s,d)=>s+d.re,0);
+      return { key:`${a.empresaId}__${a.sedeId}`, emp:empresas.find(e=>e.id===a.empresaId), sede:sedes.find(s=>s.id===a.sedeId), mesesData, totalAc, totalRe, pctTotal:totalAc>0?Math.min(100,Math.round((totalRe/totalAc)*100)):null };
+    }).sort((a,b)=>(a.pctTotal??101)-(b.pctTotal??101));
+    // Fila global compañía por mes
+    const globalMeses = meses.map((mes,i) => {
+      const ac = filas.reduce((s,f)=>s+f.mesesData[i].ac,0);
+      const re = filas.reduce((s,f)=>s+f.mesesData[i].re,0);
+      return { ac, re, pct: ac>0?Math.min(100,Math.round((re/ac)*100)):null };
+    });
+    const gAc = filas.reduce((s,f)=>s+f.totalAc,0);
+    const gRe = filas.reduce((s,f)=>s+f.totalRe,0);
+    return { yr, meses, filas, globalMeses, pctGlobal:gAc>0?Math.round((gRe/gAc)*100):0, totalAcord:gAc, totalReal:gRe };
+  }, [modo, yearOffset, acuerdos, filtroEmp, filtroSede, calcAcordado, calcReal, empresas, sedes]);
+
+  const navPrev = () => { if(modo==="semana")setWeekOffset(w=>w-1); else if(modo==="mes")setMesOffset(m=>m-1); else setYearOffset(y=>y-1); };
+  const navNext = () => { if(modo==="semana")setWeekOffset(w=>Math.min(0,w+1)); else if(modo==="mes")setMesOffset(m=>Math.min(0,m+1)); else setYearOffset(y=>Math.min(0,y+1)); };
+  const atPresent = modo==="semana"?weekOffset===0:modo==="mes"?mesOffset===0:yearOffset===0;
+  const curLabel  = modo==="semana"?semanaData?.label:modo==="mes"?mesData?.label:anioData?.yr;
+  const pctGlobal = modo==="semana"?semanaData?.pctGlobal:modo==="mes"?mesData?.pctGlobal:anioData?.pctGlobal;
+
+  // Mini badge % para heatmaps
+  const PctCell = ({pct, small}) => {
+    if (pct === null) return <span style={{fontSize:10,color:T.muted}}>—</span>;
+    return <span style={{display:"inline-block",padding:small?"2px 5px":"3px 8px",borderRadius:99,fontSize:small?10:11,fontWeight:800,background:pctBg(pct),color:pctColor(pct),border:`1px solid ${pctColor(pct)}`}}>{pct}%</span>;
+  };
+
+  return (
+    <div style={{ maxWidth: 960, margin: "0 auto", paddingBottom: 40 }}>
+
+      {/* Header */}
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 900, color: T.navy, margin: 0 }}>📊 Cumplimiento de Horas</h2>
+        <p style={{ fontSize: 13, color: T.muted, margin: "4px 0 0" }}>Detecta qué empresas y sedes están cumpliendo — por semana, mes o año</p>
+      </div>
+
+      {/* Modo + Navegador */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", background: T.white, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+          {[["semana","📅 Semana"],["mes","🗓️ Mes"],["año","📆 Año"]].map(([m,l]) => (
+            <button key={m} onClick={() => setModo(m)} style={{
+              padding: "9px 18px", border: "none", cursor: "pointer", fontSize: 13,
+              fontWeight: modo===m?800:500, background: modo===m?T.navy:"none",
+              color: modo===m?"#fff":T.slate, transition:"all .2s"
+            }}>{l}</button>
+          ))}
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:6, background:T.white, border:`1px solid ${T.border}`, borderRadius:10, padding:"6px 12px", flex:1, justifyContent:"center" }}>
+          <button onClick={navPrev} style={{ border:"none",background:"none",cursor:"pointer",fontSize:18,color:T.slate,padding:"0 4px" }}>‹</button>
+          <span style={{ fontSize:13, fontWeight:700, color:T.navy, minWidth:160, textAlign:"center" }}>{curLabel}</span>
+          <button onClick={navNext} disabled={atPresent}
+            style={{ border:"none",background:"none",cursor:atPresent?"default":"pointer",fontSize:18,color:atPresent?T.border:T.slate,padding:"0 4px" }}>›</button>
+        </div>
+      </div>
+
+      {/* Filtros */}
+      <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
+        <select value={filtroEmp} onChange={e=>setFiltroEmp(e.target.value)}
+          style={{ flex:1,minWidth:180,padding:"9px 12px",borderRadius:8,border:`1.5px solid ${filtroEmp?T.amber:T.border}`,fontSize:13,background:"#fff",color:T.navy }}>
+          <option value="">🏭 Todas las empresas</option>
+          {[...new Set(acuerdos.map(a=>a.empresaId))].map(id=>{const e=empresas.find(x=>x.id===id);return e?<option key={id} value={id} style={{color:T.navy}}>{e.nombre}</option>:null;})}
+        </select>
+        <select value={filtroSede} onChange={e=>setFiltroSede(e.target.value)}
+          style={{ flex:1,minWidth:160,padding:"9px 12px",borderRadius:8,border:`1.5px solid ${filtroSede?T.amber:T.border}`,fontSize:13,background:"#fff",color:T.navy }}>
+          <option value="">📍 Todas las sedes</option>
+          {[...new Set(acuerdos.map(a=>a.sedeId))].map(id=>{const s=sedes.find(x=>x.id===id);return s?<option key={id} value={id} style={{color:T.navy}}>{s.nombre}</option>:null;})}
+        </select>
+        {(filtroEmp||filtroSede)&&<button onClick={()=>{setFiltroEmp("");setFiltroSede("");}} style={{padding:"9px 14px",borderRadius:8,border:"none",background:"#ef4444",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer"}}>✕ Limpiar</button>}
+      </div>
+
+      {/* KPIs globales */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))", gap:10, marginBottom:20 }}>
+        {[
+          { label:"Cumplimiento global", value:`${pctGlobal??0}%`, color:pctColor(pctGlobal), border:true },
+          { label:"Horas reales",   value:`${fmt1(modo==="semana"?semanaData?.totalReal:modo==="mes"?mesData?.totalReal:anioData?.totalReal||0)}h`, color:"#0ea5e9" },
+          { label:"Horas acordadas",value:`${fmt1(modo==="semana"?semanaData?.totalAcord:modo==="mes"?mesData?.totalAcord:anioData?.totalAcord||0)}h`, color:T.slate },
+          { label:"Al día ✅",  value:(modo==="semana"?semanaData?.filas:modo==="mes"?mesData?.filas:anioData?.filas||[])?.filter(f=>(f.pct??f.pctTotal)>=100).length??0, color:"#16a34a" },
+          { label:"En riesgo 🔴",value:(modo==="semana"?semanaData?.filas:modo==="mes"?mesData?.filas:anioData?.filas||[])?.filter(f=>{const p=f.pct??f.pctTotal;return p!==null&&p<50;}).length??0, color:"#dc2626" },
+        ].map(st=>(
+          <div key={st.label} style={{ background:T.white, borderRadius:12, padding:"12px 14px", border:`1px solid ${T.border}`, borderLeft:st.border?`4px solid ${pctColor(pctGlobal)}`:undefined }}>
+            <div style={{ fontSize:st.border?26:22, fontWeight:900, color:st.color }}>{st.value}</div>
+            <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{st.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── VISTA SEMANA ── */}
+      {modo === "semana" && semanaData && (
+        semanaData.filas.length === 0
+          ? <EmptyState />
+          : <div style={{ background:T.white, borderRadius:14, border:`1px solid ${T.border}`, overflow:"hidden" }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 80px 80px 1fr 70px", gap:8, padding:"10px 16px", background:T.bg, borderBottom:`1px solid ${T.border}`, fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase" }}>
+                <div>Empresa</div><div>Sede</div><div style={{textAlign:"right"}}>Acordado</div><div style={{textAlign:"right"}}>Real</div><div style={{textAlign:"center"}}>Progreso</div><div style={{textAlign:"center"}}>%</div>
+              </div>
+              {semanaData.filas.map(f=>(
+                <div key={f.key} style={{ display:"grid", gridTemplateColumns:"1fr 1fr 80px 80px 1fr 70px", gap:8, padding:"11px 16px", borderBottom:`1px solid ${T.border}`, alignItems:"center", background:pctBg(f.pct) }}>
+                  <div style={{ fontSize:13,fontWeight:700,color:T.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{f.emp?.nombre||"—"}</div>
+                  <div style={{ fontSize:12,color:T.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>📍{f.sede?.nombre||"—"}</div>
+                  <div style={{ textAlign:"right",fontSize:13,color:T.slate }}>{fmt1(f.acordado)}h</div>
+                  <div style={{ textAlign:"right",fontSize:13,fontWeight:700,color:f.real>0?"#0ea5e9":T.muted }}>{fmt1(f.real)}h</div>
+                  <div style={{ position:"relative",height:8,borderRadius:99,background:T.border,overflow:"hidden" }}>
+                    <div style={{ position:"absolute",left:0,top:0,bottom:0,borderRadius:99,width:`${Math.min(100,f.pct||0)}%`,background:pctColor(f.pct),transition:"width .4s" }}/>
+                  </div>
+                  <div style={{textAlign:"center"}}><PctCell pct={f.pct}/></div>
+                </div>
+              ))}
+            </div>
+      )}
+
+      {/* ── VISTA MES — heatmap semanas ── */}
+      {modo === "mes" && mesData && (
+        mesData.filas.length === 0
+          ? <EmptyState />
+          : <div style={{ overflowX:"auto" }}>
+              <div style={{ minWidth:600, background:T.white, borderRadius:14, border:`1px solid ${T.border}`, overflow:"hidden" }}>
+                {/* Cabecera */}
+                <div style={{ display:"grid", gridTemplateColumns:`180px 120px repeat(${mesData.semanas.length},1fr) 70px`, padding:"10px 16px", background:T.navy, fontSize:11, fontWeight:700, color:"rgba(255,255,255,.7)", textTransform:"uppercase", gap:6 }}>
+                  <div>Empresa</div><div>Sede</div>
+                  {mesData.semanas.map((s,i)=><div key={i} style={{textAlign:"center"}}>Sem {i+1}<br/><span style={{fontSize:9,fontWeight:400,color:"rgba(255,255,255,.5)"}}>{s.label}</span></div>)}
+                  <div style={{textAlign:"center"}}>Total</div>
+                </div>
+                {mesData.filas.map(f=>(
+                  <div key={f.key} style={{ display:"grid", gridTemplateColumns:`180px 120px repeat(${mesData.semanas.length},1fr) 70px`, padding:"10px 16px", borderBottom:`1px solid ${T.border}`, alignItems:"center", gap:6, background:pctBg(f.pctTotal) }}>
+                    <div style={{fontSize:12,fontWeight:700,color:T.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.emp?.nombre||"—"}</div>
+                    <div style={{fontSize:11,color:T.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📍{f.sede?.nombre||"—"}</div>
+                    {f.semsData.map((s,i)=>(
+                      <div key={i} style={{textAlign:"center"}}>
+                        <PctCell pct={s.pct} small/>
+                        {s.ac>0&&<div style={{fontSize:9,color:T.muted,marginTop:1}}>{fmt1(s.re)}/{fmt1(s.ac)}h</div>}
+                      </div>
+                    ))}
+                    <div style={{textAlign:"center"}}><PctCell pct={f.pctTotal}/></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+      )}
+
+      {/* ── VISTA AÑO — heatmap meses ── */}
+      {modo === "año" && anioData && (
+        anioData.filas.length === 0
+          ? <EmptyState />
+          : <div style={{ overflowX:"auto" }}>
+              {/* Fila global compañía */}
+              <div style={{ background:T.navy, borderRadius:12, padding:"12px 16px", marginBottom:12, display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                <span style={{color:"#fff",fontWeight:800,fontSize:13,minWidth:120}}>🏢 Compañía global</span>
+                {anioData.globalMeses.map((m,i)=>(
+                  <div key={i} style={{textAlign:"center",minWidth:44}}>
+                    <div style={{fontSize:9,color:"rgba(255,255,255,.6)",marginBottom:2}}>{anioData.meses[i].label}</div>
+                    {m.pct!==null
+                      ? <span style={{display:"inline-block",padding:"2px 6px",borderRadius:99,fontSize:11,fontWeight:800,background:pctBg(m.pct),color:pctColor(m.pct)}}>{m.pct}%</span>
+                      : <span style={{fontSize:10,color:"rgba(255,255,255,.3)"}}>—</span>
+                    }
+                  </div>
+                ))}
+                <span style={{marginLeft:"auto",fontWeight:900,fontSize:18,color:pctColor(anioData.pctGlobal)}}>{anioData.pctGlobal}%</span>
+              </div>
+
+              {/* Tabla por empresa+sede */}
+              <div style={{ minWidth:800, background:T.white, borderRadius:14, border:`1px solid ${T.border}`, overflow:"hidden" }}>
+                <div style={{ display:"grid", gridTemplateColumns:`160px 120px repeat(12,1fr) 60px`, padding:"10px 14px", background:T.bg, borderBottom:`1px solid ${T.border}`, fontSize:10, fontWeight:700, color:T.muted, textTransform:"uppercase", gap:4 }}>
+                  <div>Empresa</div><div>Sede</div>
+                  {anioData.meses.map((m,i)=><div key={i} style={{textAlign:"center"}}>{m.label}</div>)}
+                  <div style={{textAlign:"center"}}>Año</div>
+                </div>
+                {anioData.filas.map(f=>(
+                  <div key={f.key} style={{ display:"grid", gridTemplateColumns:`160px 120px repeat(12,1fr) 60px`, padding:"9px 14px", borderBottom:`1px solid ${T.border}`, alignItems:"center", gap:4, background:pctBg(f.pctTotal) }}>
+                    <div style={{fontSize:11,fontWeight:700,color:T.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.emp?.nombre||"—"}</div>
+                    <div style={{fontSize:10,color:T.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📍{f.sede?.nombre||"—"}</div>
+                    {f.mesesData.map((m,i)=>(
+                      <div key={i} style={{textAlign:"center"}}>
+                        <PctCell pct={m.pct} small/>
+                      </div>
+                    ))}
+                    <div style={{textAlign:"center"}}><PctCell pct={f.pctTotal} small/></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+      )}
+
+      <div style={{ marginTop:12, fontSize:11, color:T.muted, textAlign:"center" }}>
+        Solo visitas con entrada Y salida registradas cuentan como horas reales · Horas acordadas calculadas hasta hoy si el período es actual
+      </div>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div style={{ background:T.white, borderRadius:16, padding:"48px 24px", textAlign:"center", border:`1px solid ${T.border}` }}>
+      <div style={{ fontSize:40, marginBottom:12 }}>📊</div>
+      <div style={{ fontSize:15, fontWeight:700, color:T.navy }}>Sin datos para este período</div>
+      <div style={{ fontSize:13, color:T.muted, marginTop:4 }}>Agrega acuerdos comerciales para ver el cumplimiento</div>
+    </div>
+  );
+}
+
+
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [mesOffset,  setMesOffset]  = useState(0);
+  const [yearOffset, setYearOffset] = useState(0);
+  const [filtroEmp,  setFiltroEmp]  = useState("");
+  const [filtroSede, setFiltroSede] = useState("");
+
+  const fmt1 = h => Math.round(h * 10) / 10;
+
+  const pctColor = pct => {
+    if (pct === null || pct === undefined) return T.muted;
     if (pct >= 100) return "#16a34a";
     if (pct >= 70)  return "#ca8a04";
     if (pct >= 40)  return "#ea580c";
     return "#dc2626";
   };
-
-  const pctBg = (pct) => {
-    if (pct === null) return T.bg;
+  const pctBg = pct => {
+    if (pct === null || pct === undefined) return T.bg;
     if (pct >= 100) return "#f0fdf4";
     if (pct >= 70)  return "#fefce8";
     if (pct >= 40)  return "#fff7ed";
     return "#fef2f2";
   };
 
-  const fmt1 = (h) => Math.round(h * 10) / 10;
+  // ── Rango según modo ──────────────────────────────────────────────────────
+  const rango = useMemo(() => {
+    const now = new Date();
+    if (modo === "semana") {
+      const { mon, sun } = getWeekRange(weekOffset);
+      const isCurrent = weekOffset === 0;
+      const limitDay  = isCurrent ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59) : sun;
+      const label     = isCurrent ? "Semana actual" : fmtWeekLabel(mon, sun);
+      return { desde: mon, hasta: sun, limitDay, label, isCurrent };
+    }
+    if (modo === "mes") {
+      const d = new Date(now.getFullYear(), now.getMonth() + mesOffset, 1);
+      const desde  = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0);
+      const hasta  = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+      const isCurrent = mesOffset === 0;
+      const limitDay  = isCurrent ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59) : hasta;
+      const label = d.toLocaleDateString("es-CO", { month: "long", year: "numeric" });
+      return { desde, hasta, limitDay, label: label.charAt(0).toUpperCase() + label.slice(1), isCurrent };
+    }
+    // año
+    const yr    = now.getFullYear() + yearOffset;
+    const desde = new Date(yr, 0, 1, 0, 0, 0);
+    const hasta = new Date(yr, 11, 31, 23, 59, 59);
+    const isCurrent = yearOffset === 0;
+    const limitDay  = isCurrent ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59) : hasta;
+    return { desde, hasta, limitDay, label: String(yr), isCurrent };
+  }, [modo, weekOffset, mesOffset, yearOffset]);
+
+  // ── Horas reales en rango (solo visitas completas) ───────────────────────
+  const horasReales = useMemo(() => {
+    const map = {};
+    visitas
+      .filter(v => v.status === "completo" && v.duracionMin !== null)
+      .forEach(v => {
+        const ts = new Date(v.entrada?.timestamp || v.fecha);
+        if (ts >= rango.desde && ts <= rango.hasta) {
+          const k = `${v.empresaId}__${v.sedeId}`;
+          map[k] = (map[k] || 0) + v.duracionMin / 60;
+        }
+      });
+    return map;
+  }, [visitas, rango]);
+
+  // ── Horas acordadas en rango (iterando día a día hasta limitDay) ──────────
+  const horasAcordadas = useMemo(() => {
+    const map = {};
+    acuerdos.forEach(a => {
+      const k = `${a.empresaId}__${a.sedeId}`;
+      let total = 0;
+      const cursor = new Date(rango.desde);
+      while (cursor <= rango.limitDay) {
+        const dia = DIAS_MAP[cursor.getDay()];
+        total += Number(a.horas?.[dia] || 0);
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      map[k] = (map[k] || 0) + total;
+    });
+    return map;
+  }, [acuerdos, rango]);
+
+  // ── Filas filtradas y ordenadas ───────────────────────────────────────────
+  const filas = useMemo(() => acuerdos
+    .filter(a => (!filtroEmp || a.empresaId === filtroEmp) && (!filtroSede || a.sedeId === filtroSede))
+    .map(a => {
+      const k        = `${a.empresaId}__${a.sedeId}`;
+      const acordado = horasAcordadas[k] || 0;
+      const real     = horasReales[k]    || 0;
+      const pct      = acordado > 0 ? Math.min(100, Math.round((real / acordado) * 100)) : null;
+      return { key: k, emp: empresas.find(e => e.id === a.empresaId), sede: sedes.find(s => s.id === a.sedeId), acordado, real, pct };
+    })
+    .sort((a, b) => (a.pct ?? 101) - (b.pct ?? 101))
+  , [acuerdos, horasAcordadas, horasReales, empresas, sedes, filtroEmp, filtroSede]);
+
+  // ── Stats globales ────────────────────────────────────────────────────────
+  const stats = useMemo(() => {
+    const conMeta   = filas.filter(f => f.acordado > 0);
+    const totalAcord = filas.reduce((s, f) => s + f.acordado, 0);
+    const totalReal  = filas.reduce((s, f) => s + f.real, 0);
+    return {
+      pctGlobal:  totalAcord > 0 ? Math.round((totalReal / totalAcord) * 100) : 0,
+      totalReal, totalAcord,
+      cumplidas:  conMeta.filter(f => f.pct >= 100).length,
+      enRiesgo:   conMeta.filter(f => f.pct !== null && f.pct < 50).length,
+      sinVisita:  filas.filter(f => f.real === 0 && f.acordado > 0).length,
+    };
+  }, [filas]);
+
+  // ── Navegación por modo ────────────────────────────────────────────────────
+  const navPrev = () => { if (modo==="semana") setWeekOffset(w=>w-1); else if (modo==="mes") setMesOffset(m=>m-1); else setYearOffset(y=>y-1); };
+  const navNext = () => { if (modo==="semana") setWeekOffset(w=>Math.min(0,w+1)); else if (modo==="mes") setMesOffset(m=>Math.min(0,m+1)); else setYearOffset(y=>Math.min(0,y+1)); };
+  const atPresent = modo==="semana" ? weekOffset===0 : modo==="mes" ? mesOffset===0 : yearOffset===0;
 
   return (
-    <div style={{ maxWidth: 860, margin: "0 auto", paddingBottom: 40 }}>
+    <div style={{ maxWidth: 900, margin: "0 auto", paddingBottom: 40 }}>
 
-      {/* Header + navegación semanas */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-        <div>
-          <h2 style={{ fontSize: 20, fontWeight: 900, color: T.navy, margin: 0 }}>📊 Cumplimiento de Horas</h2>
-          <p style={{ fontSize: 13, color: T.muted, margin: "4px 0 0" }}>Horas visitadas vs acordadas por empresa y sede</p>
+      {/* Header */}
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 900, color: T.navy, margin: 0 }}>📊 Cumplimiento de Horas</h2>
+        <p style={{ fontSize: 13, color: T.muted, margin: "4px 0 0" }}>Horas visitadas vs acordadas — detecta qué empresas y sedes están fallando</p>
+      </div>
+
+      {/* Modo + Navegador */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        {/* Selector modo */}
+        <div style={{ display: "flex", background: T.white, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+          {[["semana","📅 Semana"],["mes","🗓️ Mes"],["año","📆 Año"]].map(([m, l]) => (
+            <button key={m} onClick={() => setModo(m)} style={{
+              padding: "9px 18px", border: "none", cursor: "pointer", fontSize: 13, fontWeight: modo===m ? 800 : 500,
+              background: modo===m ? T.navy : "none", color: modo===m ? "#fff" : T.slate, transition: "all .2s"
+            }}>{l}</button>
+          ))}
         </div>
-        {/* Navegador de semanas */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.white, border: `1px solid ${T.border}`, borderRadius: 10, padding: "6px 8px" }}>
-          <button onClick={() => setWeekOffset(w => w - 1)}
-            style={{ border: "none", background: "none", cursor: "pointer", padding: "4px 8px", fontSize: 16, color: T.slate, borderRadius: 6 }}>‹</button>
-          <span style={{ fontSize: 13, fontWeight: 700, color: T.navy, minWidth: 160, textAlign: "center" }}>
-            {isCurrentWeek ? "📅 Semana actual" : fmtWeekLabel(mon, sun)}
+        {/* Navegador período */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, background: T.white, border: `1px solid ${T.border}`, borderRadius: 10, padding: "6px 10px", flex: 1, justifyContent: "center" }}>
+          <button onClick={navPrev} style={{ border: "none", background: "none", cursor: "pointer", fontSize: 18, color: T.slate, padding: "0 4px" }}>‹</button>
+          <span style={{ fontSize: 13, fontWeight: 700, color: T.navy, minWidth: 180, textAlign: "center" }}>
+            {rango.isCurrent ? `${rango.label} (actual)` : rango.label}
           </span>
-          <button onClick={() => setWeekOffset(w => Math.min(0, w + 1))}
-            style={{ border: "none", background: "none", cursor: "pointer", padding: "4px 8px", fontSize: 16, color: weekOffset === 0 ? T.border : T.slate, borderRadius: 6 }}
-            disabled={weekOffset === 0}>›</button>
+          <button onClick={navNext} disabled={atPresent}
+            style={{ border: "none", background: "none", cursor: atPresent ? "default" : "pointer", fontSize: 18, color: atPresent ? T.border : T.slate, padding: "0 4px" }}>›</button>
         </div>
       </div>
 
@@ -1105,7 +1432,7 @@ function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
           <option value="">🏭 Todas las empresas</option>
           {[...new Set(acuerdos.map(a => a.empresaId))].map(id => {
             const e = empresas.find(x => x.id === id);
-            return e ? <option key={id} value={id}>{e.nombre}</option> : null;
+            return e ? <option key={id} value={id} style={{ color: T.navy }}>{e.nombre}</option> : null;
           })}
         </select>
         <select value={filtroSede} onChange={e => setFiltroSede(e.target.value)}
@@ -1113,7 +1440,7 @@ function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
           <option value="">📍 Todas las sedes</option>
           {[...new Set(acuerdos.map(a => a.sedeId))].map(id => {
             const s = sedes.find(x => x.id === id);
-            return s ? <option key={id} value={id}>{s.nombre}</option> : null;
+            return s ? <option key={id} value={id} style={{ color: T.navy }}>{s.nombre}</option> : null;
           })}
         </select>
         {(filtroEmp || filtroSede) && (
@@ -1123,59 +1450,53 @@ function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
       </div>
 
       {/* Stats globales */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 20 }}>
         {[
-          { label: "Cumplimiento global", value: `${stats.pctGlobal}%`, color: pctColor(stats.pctGlobal) },
+          { label: "Cumplimiento global", value: `${stats.pctGlobal}%`, color: pctColor(stats.pctGlobal), big: true },
           { label: "Horas reales",        value: `${fmt1(stats.totalReal)}h`,  color: "#0ea5e9" },
           { label: "Horas acordadas",     value: `${fmt1(stats.totalAcord)}h`, color: T.slate },
-          { label: "Al día ✅",           value: stats.cumplidas,  color: "#16a34a" },
-          { label: "En riesgo 🔴",        value: stats.enRiesgo,   color: "#dc2626" },
+          { label: "Al día ✅",           value: stats.cumplidas, color: "#16a34a" },
+          { label: "En riesgo 🔴",        value: stats.enRiesgo,  color: "#dc2626" },
+          { label: "Sin visita 🚫",       value: stats.sinVisita, color: T.muted },
         ].map(st => (
-          <div key={st.label} style={{ flex: "1 1 120px", background: T.white, borderRadius: 12, padding: "12px 16px", border: `1px solid ${T.border}` }}>
-            <div style={{ fontSize: 22, fontWeight: 900, color: st.color }}>{st.value}</div>
+          <div key={st.label} style={{ background: T.white, borderRadius: 12, padding: "12px 14px", border: `1px solid ${T.border}`, borderLeft: st.big ? `4px solid ${pctColor(stats.pctGlobal)}` : undefined }}>
+            <div style={{ fontSize: st.big ? 26 : 22, fontWeight: 900, color: st.color }}>{st.value}</div>
             <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{st.label}</div>
           </div>
         ))}
       </div>
 
-      {/* Lista de cumplimiento */}
+      {/* Tabla */}
       {filas.length === 0 ? (
         <div style={{ background: T.white, borderRadius: 16, padding: "48px 24px", textAlign: "center", border: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
           <div style={{ fontSize: 15, fontWeight: 700, color: T.navy }}>
-            {acuerdos.length === 0 ? "No hay acuerdos registrados" : "Sin resultados con este filtro"}
+            {acuerdos.length === 0 ? "No hay acuerdos registrados aún" : "Sin resultados con este filtro"}
           </div>
         </div>
       ) : (
         <div style={{ background: T.white, borderRadius: 14, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-          {/* Cabecera tabla */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 90px 90px 110px 80px", gap: 8, padding: "10px 16px", background: T.bg, borderBottom: `1px solid ${T.border}`, fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-            <div>Empresa</div>
-            <div>Sede</div>
-            <div style={{ textAlign: "right" }}>Acordado</div>
-            <div style={{ textAlign: "right" }}>Real</div>
-            <div style={{ textAlign: "center" }}>Progreso</div>
-            <div style={{ textAlign: "center" }}>%</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 90px 90px 1fr 80px", gap: 8, padding: "10px 16px", background: T.bg, borderBottom: `1px solid ${T.border}`, fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            <div>Empresa</div><div>Sede</div>
+            <div style={{ textAlign:"right" }}>Acordado</div>
+            <div style={{ textAlign:"right" }}>Real</div>
+            <div style={{ textAlign:"center" }}>Progreso</div>
+            <div style={{ textAlign:"center" }}>%</div>
           </div>
           {filas.map(f => (
-            <div key={f.key} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 90px 90px 110px 80px", gap: 8, padding: "12px 16px", borderBottom: `1px solid ${T.border}`, alignItems: "center", background: pctBg(f.pct) }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: T.navy }}>{f.emp?.nombre || "—"}</div>
-              <div style={{ fontSize: 12, color: T.muted }}>📍 {f.sede?.nombre || "—"}</div>
+            <div key={f.key} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 90px 90px 1fr 80px", gap: 8, padding: "12px 16px", borderBottom: `1px solid ${T.border}`, alignItems: "center", background: pctBg(f.pct) }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.emp?.nombre || "—"}</div>
+              <div style={{ fontSize: 12, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📍 {f.sede?.nombre || "—"}</div>
               <div style={{ textAlign: "right", fontSize: 13, color: T.slate }}>{fmt1(f.acordado)}h</div>
               <div style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: f.real > 0 ? "#0ea5e9" : T.muted }}>{fmt1(f.real)}h</div>
-              {/* Barra de progreso */}
               <div style={{ position: "relative", height: 8, borderRadius: 99, background: T.border, overflow: "hidden" }}>
                 <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: 99, width: `${Math.min(100, f.pct || 0)}%`, background: pctColor(f.pct), transition: "width .4s" }} />
               </div>
-              {/* Badge % */}
               <div style={{ textAlign: "center" }}>
-                {f.acordado === 0 ? (
-                  <span style={{ fontSize: 11, color: T.muted }}>Sin meta</span>
-                ) : (
-                  <span style={{ display: "inline-block", padding: "3px 10px", borderRadius: 99, fontSize: 12, fontWeight: 800, background: pctBg(f.pct), color: pctColor(f.pct), border: `1.5px solid ${pctColor(f.pct)}` }}>
-                    {f.pct}%
-                  </span>
-                )}
+                {f.acordado === 0
+                  ? <span style={{ fontSize: 11, color: T.muted }}>Sin meta</span>
+                  : <span style={{ display: "inline-block", padding: "3px 10px", borderRadius: 99, fontSize: 12, fontWeight: 800, background: pctBg(f.pct), color: pctColor(f.pct), border: `1.5px solid ${pctColor(f.pct)}` }}>{f.pct}%</span>
+                }
               </div>
             </div>
           ))}
@@ -1183,14 +1504,13 @@ function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
       )}
 
       <div style={{ marginTop: 12, fontSize: 11, color: T.muted, textAlign: "center" }}>
-        {isCurrentWeek
-          ? `* Horas acordadas calculadas hasta hoy (${new Date().toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })})`
-          : `* Semana completa: ${fmtWeekLabel(mon, sun)}`}
+        {rango.isCurrent ? `* Calculado hasta hoy inclusive` : `* Período completo: ${rango.label}`}
         {" · "}Solo visitas con entrada Y salida registradas cuentan como horas reales.
       </div>
     </div>
   );
 }
+
 
 // ─── Acuerdos Comerciales ─────────────────────────────────────────────────────
 const DIAS = ["lunes","martes","miércoles","jueves","viernes","sábado","domingo"];
