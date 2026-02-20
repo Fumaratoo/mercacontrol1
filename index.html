@@ -1809,6 +1809,18 @@ function AdminDashboard({ user, registros, sedes, empresas, onEdit, onDelete, on
                 ));
               })()}
             </>)}
+
+            {/* ── ACUERDOS TAB ── */}
+            {activeTab === "acuerdos" && (
+              <AcuerdosView
+                acuerdos={acuerdos}
+                empresas={empresas}
+                sedes={sedes}
+                onUpdateAcuerdos={onUpdateAcuerdos}
+                canEdit={!isViewer}
+              />
+            )}
+
           </div>
         </div>
       </div>
@@ -1974,18 +1986,6 @@ function AdminDashboard({ user, registros, sedes, empresas, onEdit, onDelete, on
           </div>
         </div>
       )}
-
-            {/* ── ACUERDOS TAB ── */}
-            {activeTab === "acuerdos" && (
-              <AcuerdosView
-                acuerdos={acuerdos}
-                empresas={empresas}
-                sedes={sedes}
-                onUpdateAcuerdos={onUpdateAcuerdos}
-                canEdit={!isViewer}
-              />
-            )}
-
 
 
       {showExportModal && (
