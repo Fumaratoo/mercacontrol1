@@ -510,7 +510,7 @@ function NuevoRegistroForm({ user, sedes, empresas, registros, onSave, onCancel 
   const canSave = tipo && empresaId && sedeIdSel;
 
   return (
-    <div style={{ minHeight: "100vh", background: T.bg, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div style={{ height: "100vh", overflowY: "auto", background: T.bg, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       {/* Header */}
       <div style={{ background: T.navy, padding: "16px 20px", display: "flex", alignItems: "center", gap: 14 }}>
         <button onClick={onCancel} style={{
@@ -665,7 +665,7 @@ function SecurityView({ user, sedes, empresas, registros, onNuevoRegistro, onLog
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: T.bg, display: "flex", flexDirection: "column" }}>
+    <div style={{ height: "100vh", overflowY: "auto", paddingBottom: 40, background: T.bg, display: "flex", flexDirection: "column" }}>
       <OfflineBanner online={online} pending={pendingCount} onSync={onSync} syncing={syncing} />
       {viewAsBar}
       {/* Header */}
@@ -2334,7 +2334,7 @@ function AdminPanel({ user, sedes, empresas, admins, viewers, guardias, comercia
   const empFilt = empresas.filter(e => e.nombre.toLowerCase().includes(empSearch.toLowerCase()));
 
   return (
-    <div style={{ minHeight: "100vh", background: T.bg }}>
+    <div style={{ height: "100vh", overflowY: "auto", paddingBottom: 40, background: T.bg }}>
       <div style={{ background: T.navy, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
