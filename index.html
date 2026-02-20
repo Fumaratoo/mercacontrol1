@@ -510,9 +510,9 @@ function NuevoRegistroForm({ user, sedes, empresas, registros, onSave, onCancel 
   const canSave = tipo && empresaId && sedeIdSel;
 
   return (
-    <div style={{ height: "100vh", overflowY: "auto", background: T.bg, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-      {/* Header */}
-      <div style={{ background: T.navy, padding: "16px 20px", display: "flex", alignItems: "center", gap: 14 }}>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: T.bg, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      {/* Header Fijo */}
+      <div style={{ background: T.navy, padding: "16px 20px", display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
         <button onClick={onCancel} style={{
           background: "rgba(255,255,255,.1)", border: "none", color: "#fff",
           width: 40, height: 40, borderRadius: 10, fontSize: 20, cursor: "pointer",
@@ -526,8 +526,9 @@ function NuevoRegistroForm({ user, sedes, empresas, registros, onSave, onCancel 
         </div>
       </div>
 
-      <div style={{ padding: 20, maxWidth: 560, margin: "0 auto" }}>
-        {/* Auto data card */}
+      <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+        <div style={{ maxWidth: 560, margin: "0 auto", paddingBottom: 40 }}>
+          {/* Auto data card */}
         <div style={{ background: T.white, borderRadius: 14, overflow: "hidden", marginBottom: 20, border: `1px solid ${T.border}`, boxShadow: "0 1px 4px rgba(0,0,0,.05)" }}>
           <div style={{ padding: "12px 16px", background: T.navyMid, display: "flex", alignItems: "center", gap: 8 }}>
             <div className="pulse-dot" />
@@ -642,6 +643,7 @@ function NuevoRegistroForm({ user, sedes, empresas, registros, onSave, onCancel 
         }}>
           {saving ? <Spinner /> : "✅"} {saving ? "Guardando..." : "Confirmar Registro"}
         </button>
+        </div>
       </div>
     </div>
   );
@@ -665,11 +667,12 @@ function SecurityView({ user, sedes, empresas, registros, onNuevoRegistro, onLog
   );
 
   return (
-    <div style={{ height: "100vh", overflowY: "auto", paddingBottom: 40, background: T.bg, display: "flex", flexDirection: "column" }}>
-      <OfflineBanner online={online} pending={pendingCount} onSync={onSync} syncing={syncing} />
-      {viewAsBar}
-      {/* Header */}
-      <div style={{ background: T.navy, padding: "18px 20px" }}>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: T.bg }}>
+      <div style={{ flexShrink: 0 }}>
+        <OfflineBanner online={online} pending={pendingCount} onSync={onSync} syncing={syncing} />
+        {viewAsBar}
+        {/* Header */}
+        <div style={{ background: T.navy, padding: "18px 20px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <div style={{ marginBottom: 4 }}>
@@ -707,7 +710,7 @@ function SecurityView({ user, sedes, empresas, registros, onNuevoRegistro, onLog
         </div>
       </div>
 
-      <div style={{ padding: 20 }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: 20, paddingBottom: 60 }}>
         <button onClick={() => setShowForm(true)} style={{
           width: "100%", padding: "22px", borderRadius: 16, border: "none",
           background: `linear-gradient(135deg, ${T.brand} 0%, ${T.brandAccent} 100%)`,
@@ -2334,8 +2337,9 @@ function AdminPanel({ user, sedes, empresas, admins, viewers, guardias, comercia
   const empFilt = empresas.filter(e => e.nombre.toLowerCase().includes(empSearch.toLowerCase()));
 
   return (
-    <div style={{ height: "100vh", overflowY: "auto", paddingBottom: 40, background: T.bg }}>
-      <div style={{ background: T.navy, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: T.bg }}>
+      {/* Header Fijo */}
+      <div style={{ background: T.navy, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
             <img src={LOGO_SRC} alt="Cañaveral" style={{ height: 32, width: 32, borderRadius: "50%", objectFit: "cover", border: "2px solid rgba(255,255,255,.2)" }} />
@@ -2346,7 +2350,7 @@ function AdminPanel({ user, sedes, empresas, admins, viewers, guardias, comercia
       </div>
 
       {/* Tabs */}
-      <div style={{ background: T.white, borderBottom: `1px solid ${T.border}`, display: "flex", padding: "0 20px", overflowX: "auto" }}>
+      <div style={{ background: T.white, borderBottom: `1px solid ${T.border}`, display: "flex", padding: "0 20px", overflowX: "auto", flexShrink: 0 }}>
         {[["empresas", "🏭 Empresas", empresas.filter(e => e.activa).length],
           ["sedes", "📍 Sedes", sedes.filter(s => s.activa).length],
           ["guardias", "🛡️ Guardias", guardias.length],
@@ -2366,7 +2370,8 @@ function AdminPanel({ user, sedes, empresas, admins, viewers, guardias, comercia
         ))}
       </div>
 
-      <div style={{ padding: 20, maxWidth: 640, margin: "0 auto" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+        <div style={{ maxWidth: 640, margin: "0 auto", paddingBottom: 40 }}>
         {/* EMPRESAS */}
         {tab === "empresas" && (
           <div>
@@ -2671,6 +2676,7 @@ function AdminPanel({ user, sedes, empresas, admins, viewers, guardias, comercia
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
