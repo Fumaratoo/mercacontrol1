@@ -744,7 +744,6 @@ function LoginScreen({ onLogin, admins, viewers, sedes, guardias, comercials }) 
 
 // ─── Nuevo Registro Form ───────────────────────────────────────────────────────
 function NuevoRegistroForm({ user, sedes, empresas, registros, onSave, onCancel }) {
-  const { mobile } = useBreakpoint();
   const [tipo, setTipo] = useState("");
   const [proveedorId, setProveedorId] = useState("");
   const [busqueda, setBusqueda] = useState("");
@@ -928,7 +927,6 @@ function NuevoRegistroForm({ user, sedes, empresas, registros, onSave, onCancel 
 function SecurityView({ user, sedes, empresas, registros, onNuevoRegistro, onLogout, online, pendingCount, syncing, onSync, viewAsBar }) {
   const [showForm, setShowForm] = useState(false);
   const [now, setNow] = useState(new Date());
-  const { mobile, tablet } = useBreakpoint();
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
 
   const sede = sedes.find(s => s.id === user.sedeId);
@@ -1180,7 +1178,6 @@ function fmtWeekLabel(mon, sun) {
 }
 
 function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
-  const { mobile } = useBreakpoint();
   const [modo,       setModo]       = useState("semana");
   const [weekOffset, setWeekOffset] = useState(0);
   const [mesOffset,  setMesOffset]  = useState(0);
@@ -1382,29 +1379,19 @@ function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
         semanaData.filas.length === 0
           ? <EmptyState />
           : <div style={{ background:T.white, borderRadius:14, border:`1px solid ${T.border}`, overflow:"hidden" }}>
-              <div style={{ display:"grid", gridTemplateColumns: mobile?"1fr 1fr 55px 55px":"1fr 1fr 80px 80px 1fr 70px", gap:8, padding:"10px 16px", background:T.bg, borderBottom:`1px solid ${T.border}`, fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase" }}>
-                <div>Proveedor</div><div>Sede</div><div style={{textAlign:"right"}}>Acord.</div><div style={{textAlign:"right"}}>Real</div>
-                {!mobile&&<div style={{textAlign:"center"}}>Progreso</div>}
-                {!mobile&&<div style={{textAlign:"center"}}>%</div>}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 80px 80px 1fr 70px", gap:8, padding:"10px 16px", background:T.bg, borderBottom:`1px solid ${T.border}`, fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase" }}>
+                <div>Proveedor</div><div>Sede</div><div style={{textAlign:"right"}}>Acordado</div><div style={{textAlign:"right"}}>Real</div><div style={{textAlign:"center"}}>Progreso</div><div style={{textAlign:"center"}}>%</div>
               </div>
               {semanaData.filas.map(f=>(
-                <div key={f.key} style={{ display:"grid", gridTemplateColumns: mobile?"1fr 1fr 55px 55px":"1fr 1fr 80px 80px 1fr 70px", gap:8, padding:"10px 16px", borderBottom:`1px solid ${T.border}`, alignItems:"center", background:pctBg(f.pct) }}>
-                  <div style={{ fontSize:mobile?11:13,fontWeight:700,color:T.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{f.emp?.nombre||"—"}</div>
-                  <div style={{ fontSize:mobile?10:12,color:T.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>📍{f.sede?.nombre||"—"}</div>
-                  <div style={{ textAlign:"right",fontSize:12,color:T.slate }}>{fmt1(f.acordado)}h</div>
-                  <div style={{ textAlign:"right",fontSize:12,fontWeight:700,color:f.real>0?"#0ea5e9":T.muted }}>{fmt1(f.real)}h</div>
-                  {!mobile&&<div style={{ position:"relative",height:8,borderRadius:99,background:T.border,overflow:"hidden" }}>
+                <div key={f.key} style={{ display:"grid", gridTemplateColumns:"1fr 1fr 80px 80px 1fr 70px", gap:8, padding:"11px 16px", borderBottom:`1px solid ${T.border}`, alignItems:"center", background:pctBg(f.pct) }}>
+                  <div style={{ fontSize:13,fontWeight:700,color:T.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{f.emp?.nombre||"—"}</div>
+                  <div style={{ fontSize:12,color:T.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>📍{f.sede?.nombre||"—"}</div>
+                  <div style={{ textAlign:"right",fontSize:13,color:T.slate }}>{fmt1(f.acordado)}h</div>
+                  <div style={{ textAlign:"right",fontSize:13,fontWeight:700,color:f.real>0?"#0ea5e9":T.muted }}>{fmt1(f.real)}h</div>
+                  <div style={{ position:"relative",height:8,borderRadius:99,background:T.border,overflow:"hidden" }}>
                     <div style={{ position:"absolute",left:0,top:0,bottom:0,borderRadius:99,width:`${Math.min(100,f.pct||0)}%`,background:pctColor(f.pct),transition:"width .4s" }}/>
-                  </div>}
-                  {!mobile&&<div style={{textAlign:"center"}}><PctCell pct={f.pct}/></div>}
-                  {mobile&&<div style={{gridColumn:"1/-1"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                      <div style={{ flex:1,position:"relative",height:6,borderRadius:99,background:T.border,overflow:"hidden" }}>
-                        <div style={{ position:"absolute",left:0,top:0,bottom:0,borderRadius:99,width:`${Math.min(100,f.pct||0)}%`,background:pctColor(f.pct) }}/>
-                      </div>
-                      <PctCell pct={f.pct} small/>
-                    </div>
-                  </div>}
+                  </div>
+                  <div style={{textAlign:"center"}}><PctCell pct={f.pct}/></div>
                 </div>
               ))}
             </div>
@@ -1964,10 +1951,7 @@ function AdminDashboard({ user, registros, sedes, empresas, onEdit, onDelete, on
   const [filterTipo, setFilterTipo] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
 
-  const { mobile, tablet } = useBreakpoint();
-  // Sidebar: cerrado por defecto en móvil
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  useEffect(() => { if (mobile) setSidebarOpen(false); }, [mobile]);
 
   const sedesEnUso = sedes.filter(s => s.activa && registros.some(r => r.sedeId === s.id));
   const empresasEnUso = empresas.filter(e => e.activa && registros.some(r => r.proveedorId === e.id));
@@ -2224,26 +2208,7 @@ function AdminDashboard({ user, registros, sedes, empresas, onEdit, onDelete, on
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* Sidebar */}
         {sidebarOpen && activeTab !== "acuerdos" && activeTab !== "cumplimiento" && (
-          <>
-            {/* Overlay para cerrar en móvil */}
-            {mobile && (
-              <div onClick={() => setSidebarOpen(false)} style={{
-                position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 40
-              }} />
-            )}
-            <div data-sidebar="true" style={{
-              width: mobile ? "82vw" : tablet ? 220 : 260,
-              background: T.white,
-              borderRight: `1px solid ${T.border}`,
-              padding: 20,
-              overflowY: "auto",
-              flexShrink: 0,
-              // Drawer en móvil
-              ...(mobile ? {
-                position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 50,
-                boxShadow: "4px 0 24px rgba(0,0,0,.3)"
-              } : {})
-            }}>
+          <div data-sidebar="true" style={{ width: 260, background: T.white, borderRight: `1px solid ${T.border}`, padding: 20, overflowY: "auto", flexShrink: 0 }}>
             <div style={{ background: "#05200b", borderRadius: 12, padding: 16, marginBottom: 20, color: "#fff" }}>
               <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>
                 {activeTab === "visitas" ? "Visitas filtradas" : "Registros filtrados"}
@@ -2358,14 +2323,7 @@ function AdminDashboard({ user, registros, sedes, empresas, onEdit, onDelete, on
                 return <div style={{ fontSize: 22, fontWeight: 900, color: T.navyMid }}>{hoy.length} <span style={{ fontSize: 12, fontWeight: 500, color: T.muted }}>movimientos</span></div>;
               })()}
             </div>
-            {mobile && (
-              <button onClick={() => setSidebarOpen(false)} style={{
-                marginTop: 16, width: "100%", padding: "11px", borderRadius: 8, border: "none",
-                background: T.navy, color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer"
-              }}>✓ Aplicar filtros</button>
-            )}
           </div>
-          </>
         )}
 
         {/* Tab switcher + Movement/Visitas list */}
@@ -2939,7 +2897,6 @@ function AdminDashboard({ user, registros, sedes, empresas, onEdit, onDelete, on
           </div>
         </div>
       )}
-      </div>{/* end flex container */}
     </div>
   );
 } ─────────────────────────────────────────────────
@@ -2990,7 +2947,6 @@ function ComercialProveedorsPanel({ empresas, onUpdateProveedors }) {
 
 // ─── Admin Panel ──────────────────────────────────────────────────────────────
 function AdminPanel({ user, sedes, empresas, admins, viewers, guardias, comercials, onUpdateSedes, onUpdateProveedors, onUpdateAdmins, onUpdateViewers, onUpdateGuardias, onUpdateComercials, onClose }) {
-  const { mobile } = useBreakpoint();
   const [tab, setTab] = useState("empresas");
   const [newEmp, setNewEmp] = useState("");
   const [newSede, setNewSede] = useState("");
@@ -3011,13 +2967,13 @@ function AdminPanel({ user, sedes, empresas, admins, viewers, guardias, comercia
       <div style={{ background: T.navy, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <img src={LOGO_SRC} alt="Cañaveral" style={{ height: 28, width: 28, borderRadius: "50%", objectFit: "cover", border: "2px solid rgba(255,255,255,.2)" }} />
-          <div style={{ color: "#fff", fontSize: mobile ? 15 : 20, fontWeight: 800 }}>⚙️ Panel de Administración</div>
+          <div style={{ color: "#fff", fontSize: 20, fontWeight: 800 }}>⚙️ Panel de Administración</div>
         </div>
-        <button onClick={onClose} style={{ background: "rgba(255,255,255,.1)", border: "none", color: "#fff", padding: mobile ? "7px 12px" : "10px 18px", borderRadius: 10, cursor: "pointer", fontWeight: 700, fontSize: mobile ? 12 : 14 }}>← Volver</button>
+        <button onClick={onClose} style={{ background: "rgba(255,255,255,.1)", border: "none", color: "#fff", padding: "10px 18px", borderRadius: 10, cursor: "pointer", fontWeight: 700 }}>← Volver</button>
       </div>
 
       {/* Tabs — scroll horizontal, sticky */}
-      <div style={{ background: T.white, borderBottom: `1px solid ${T.border}`, display: "flex", padding: "0 4px", overflowX: "auto", position: "sticky", top: mobile ? 48 : 57, zIndex: 9, WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
+      <div style={{ background: T.white, borderBottom: `1px solid ${T.border}`, display: "flex", padding: "0 4px", overflowX: "auto", position: "sticky", top: 57, zIndex: 9, WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
         {[["empresas", "🏭 Proveedores", empresas.filter(e => e.activa).length],
           ["sedes", "📍 Sedes", sedes.filter(s => s.activa).length],
           ["guardias", "🛡️ Guardias", guardias.length],
@@ -3025,19 +2981,19 @@ function AdminPanel({ user, sedes, empresas, admins, viewers, guardias, comercia
           ["admins", "👑 Admins", admins.length],
           ["viewers", "👁️ Espectadores", viewers.length]].map(([t, l, c]) => (
           <button key={t} onClick={() => setTab(t)} style={{
-            padding: mobile ? "9px 10px" : "12px 14px", border: "none", background: "none", cursor: "pointer", whiteSpace: "nowrap",
-            fontWeight: tab === t ? 800 : 500, fontSize: mobile ? 12 : 13,
+            padding: "12px 14px", border: "none", background: "none", cursor: "pointer", whiteSpace: "nowrap",
+            fontWeight: tab === t ? 800 : 500, fontSize: 13,
             color: tab === t ? T.navy : T.slate,
             borderBottom: `3px solid ${tab === t ? T.brand : "transparent"}`,
             display: "flex", alignItems: "center", gap: 4, flexShrink: 0
           }}>
-            {mobile ? l.split(" ")[0] : l}
+            {l}
             <span style={{ background: tab === t ? T.amberLight : T.bg, color: tab === t ? "#92400e" : T.slate, borderRadius: 99, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>{c}</span>
           </button>
         ))}
       </div>
 
-      <div style={{ padding: mobile ? "12px 12px 60px" : "16px 16px 40px", maxWidth: 640, margin: "0 auto" }}>
+      <div style={{ padding: "16px 16px 40px", maxWidth: 640, margin: "0 auto" }}>
         {/* PROVEEDORS */}
         {tab === "empresas" && (
           <div>
