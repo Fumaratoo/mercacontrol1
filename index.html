@@ -3362,11 +3362,14 @@ function App() {
   const [sedes, setSedes, sedOk] = useSharedStorage("mreg-v1-sedes", SEDES_INIT);
   const SUPER_ADMINS = ["felipevanegas752@gmail.com", "aescobar@stcanaveral.com"];
   const [admins, setAdmins, admOk] = useSharedStorage("mreg-v1-admins", [
-    { email: "aescobar@stcanaveral.com",   addedBy: "system", addedAt: 0 },
-    { email: "felipevanegas752@gmail.com", addedBy: "system", addedAt: 0 },
+    { email: "aescobar@stcanaveral.com",     addedBy: "system", addedAt: 0 },
+    { email: "felipevanegas752@gmail.com",   addedBy: "system", addedAt: 0 },
   ]);
   const [viewers, setViewers, viewOk] = useSharedStorage("mreg-v1-viewers", []);
-  const [guardias, setGuardias, guardOk] = useSharedStorage("mreg-v1-guardias", []);
+  const [guardias, setGuardias, guardOk] = useSharedStorage("mreg-v1-guardias", [
+    // felipe.vanegas@stcanaveral.com asignado como guardia de seguridad en SC BRISAS DE LOS ALAMOS
+    { email: "felipe.vanegas@stcanaveral.com", nombre: "Felipe Vanegas", sedeId: "s11", addedBy: "system", addedAt: 0 },
+  ]);
   const [comercials, setComercials, comOk] = useSharedStorage("mreg-v1-comercials", []);
   const [acuerdos, setAcuerdos, acuOk] = useSharedStorage("mreg-v1-acuerdos", []); // { email, sedeId, addedBy, addedAt }
 
