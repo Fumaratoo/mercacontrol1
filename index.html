@@ -1037,7 +1037,7 @@ function SecurityView({ user, sedes, empresas, registros, onNuevoRegistro, onLog
         )}
 
         {hoy.map(r => (
-          <div key={r.id} className="fade-in" style={{
+          <div key={r.id} style={{
             background: T.white, borderRadius: 12, padding: "14px 16px", marginBottom: 10,
             display: "flex", justifyContent: "space-between", alignItems: "center",
             boxShadow: "0 1px 4px rgba(0,0,0,.05)",
@@ -1065,7 +1065,7 @@ function DetailModal({ reg, onClose, onEdit, onDelete, isAdmin }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="fade-in" style={{ background: T.white, borderRadius: 18, width: "100%", maxWidth: 460, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 64px rgba(0,0,0,.25)" }}>
+      <div style={{ background: T.white, borderRadius: 18, width: "100%", maxWidth: 460, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 64px rgba(0,0,0,.25)" }}>
         <div style={{ padding: "20px 20px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 1 }}>
             Detalle del movimiento
@@ -1136,17 +1136,19 @@ function DetailModal({ reg, onClose, onEdit, onDelete, isAdmin }) {
 
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
 function EditModal({ reg, empresas, onSave, onClose }) {
-  const [tipo, setTipo] = useState(reg.tipo);
-  const [proveedorId, setProveedorId] = useState(reg.proveedorId);
-  const [busqueda, setBusqueda] = useState(reg.proveedor);
+  if (!reg) return null;
+  const [tipo, setTipo] = useState(reg.tipo || "entrada");
+  const [proveedorId, setProveedorId] = useState(reg.proveedorId || "");
+  const [busqueda, setBusqueda] = useState(reg.proveedor || "");
   const [showList, setShowList] = useState(false);
   const empActivas = empresas.filter(e => e.activa);
-  const empFilt = empActivas.filter(e => e.nombre.toLowerCase().includes(busqueda.toLowerCase()));
+  const empFilt = empActivas.filter(e => e.nombre.toLowerCase().includes((busqueda || "").toLowerCase()));
   const empSel = empActivas.find(e => e.id === proveedorId);
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.65)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <div className="fade-in" style={{ background: T.white, borderRadius: 18, padding: 28, width: "100%", maxWidth: 400 }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.65)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: T.white, borderRadius: 18, padding: 24, width: "100%", maxWidth: 400, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 64px rgba(0,0,0,.3)" }}>
         <h3 style={{ fontSize: 18, fontWeight: 800, color: T.navy, marginBottom: 20 }}>
           ✏️ Editar Registro #{String(reg.consecutivo).padStart(4, "0")}
         </h3>
@@ -2629,7 +2631,7 @@ function AdminDashboard({ user, registros, sedes, empresas, onEdit, onDelete, on
       {detailVisita && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
           onClick={e => e.target===e.currentTarget && setDetailVisita(null)}>
-          <div className="fade-in" style={{ background:T.white, borderRadius:18, width:"100%", maxWidth:460, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 24px 64px rgba(0,0,0,.25)" }}>
+          <div style={{ background:T.white, borderRadius:18, width:"100%", maxWidth:460, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 24px 64px rgba(0,0,0,.25)" }}>
             {(() => {
               const v = detailVisita;
               const statusCfg = {
@@ -2693,7 +2695,7 @@ function AdminDashboard({ user, registros, sedes, empresas, onEdit, onDelete, on
       {detailVisita && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
           onClick={e => e.target===e.currentTarget && setDetailVisita(null)}>
-          <div className="fade-in" style={{ background:T.white, borderRadius:18, width:"100%", maxWidth:460, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 24px 64px rgba(0,0,0,.25)" }}>
+          <div style={{ background:T.white, borderRadius:18, width:"100%", maxWidth:460, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 24px 64px rgba(0,0,0,.25)" }}>
             <div style={{ padding:"20px 20px 0", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <span style={{ fontSize:12, fontWeight:700, color:T.muted, textTransform:"uppercase", letterSpacing:1 }}>Detalle de visita</span>
               <button onClick={() => setDetailVisita(null)} style={{ background:T.bg, border:"none", width:32, height:32, borderRadius:8, cursor:"pointer", fontSize:18, color:T.slate }}>×</button>
@@ -2779,7 +2781,7 @@ function AdminDashboard({ user, registros, sedes, empresas, onEdit, onDelete, on
       {showExportModal && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
           onClick={e => e.target===e.currentTarget && setShowExportModal(false)}>
-          <div className="fade-in" style={{ background:T.white, borderRadius:20, width:"100%", maxWidth:480, maxHeight:"85vh", display:"flex", flexDirection:"column", boxShadow:"0 24px 64px rgba(0,0,0,.25)", overflow:"hidden" }}>
+          <div style={{ background:T.white, borderRadius:20, width:"100%", maxWidth:480, maxHeight:"85vh", display:"flex", flexDirection:"column", boxShadow:"0 24px 64px rgba(0,0,0,.25)", overflow:"hidden" }}>
 
             {/* Header */}
             <div style={{ background:"#05200b", padding:"20px 24px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
