@@ -1206,7 +1206,7 @@ function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
     const limit = new Date(Math.min(hasta.getTime(), new Date().setHours(23,59,59,999)));
     const cursor = new Date(desde);
     while (cursor <= limit) {
-      total += Number(acuerdo.horas?.[DIAS_MAP[cursor.getDay()]] || 0);
+      total += Number((acuerdo.horas && acuerdo.horas[DIAS_MAP[cursor.getDay()]]) || 0);
       cursor.setDate(cursor.getDate() + 1);
     }
     return total;
@@ -1506,7 +1506,7 @@ function AcuerdosView({ acuerdos, empresas, sedes, onUpdateAcuerdos, canEdit, to
 
   const empActivas   = empresas.filter(e => e.activa);
   const sedesActivas = sedes.filter(s => s.activa);
-  const totalHoras   = (h) => DIAS.reduce((s, d) => s + (Number(h?.[d]) || 0), 0);
+  const totalHoras   = (h) => DIAS.reduce((s, d) => s + (Number((h && h[d])) || 0), 0);
 
   const acuerdosFilt = acuerdos.filter(a => {
     if (filtroEmpId  && a.proveedorId !== filtroEmpId)  return false;
@@ -1536,10 +1536,10 @@ function AcuerdosView({ acuerdos, empresas, sedes, onUpdateAcuerdos, canEdit, to
         emp?.nombre  || "—", sede?.nombre || "—",
         Number(a.horas?.lunes || 0),
         Number(a.horas?.martes || 0),
-        Number(a.horas?.["miércoles"] || 0),
+        Number((a.horas && a.horas["miércoles"]) || 0),
         Number(a.horas?.jueves || 0),
         Number(a.horas?.viernes || 0),
-        Number(a.horas?.["sábado"] || 0),
+        Number((a.horas && a.horas["sábado"]) || 0),
         Number(a.horas?.domingo || 0),
         totalHoras(a.horas),
         a.notas || "",
@@ -1783,7 +1783,7 @@ function AcuerdosView({ acuerdos, empresas, sedes, onUpdateAcuerdos, canEdit, to
                 </div>
                 <div style={{ padding: "12px 18px", display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {DIAS.map((d, i) => {
-                    const h = Number(a.horas?.[d] || 0);
+                    const h = Number((a.horas && a.horas[d]) || 0);
                     return (
                       <div key={d} style={{ textAlign: "center", minWidth: 46, opacity: h === 0 ? 0.35 : 1 }}>
                         <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, marginBottom: 4 }}>{DIAS_SHORT[i]}</div>
@@ -2899,7 +2899,9 @@ function AdminDashboard({ user, registros, sedes, empresas, onEdit, onDelete, on
       )}
     </div>
   );
-} ─────────────────────────────────────────────────
+}
+
+// ─── Comercial Proveedors Panel ─────────────────────────────────────────────────
 function ComercialProveedorsPanel({ empresas, onUpdateProveedors }) {
   const [newEmp, setNewEmp] = useState("");
   const [empSearch, setEmpSearch] = useState("");
