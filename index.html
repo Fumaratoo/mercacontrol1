@@ -1277,9 +1277,10 @@ function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
         return { key:`${a.proveedorId}__${a.sedeId}`, emp: empresas.find(e=>e.id===a.proveedorId), sede: sedes.find(s=>s.id===a.sedeId), acordado, acordadoTotal, real, pct, diasData };
       })
       .sort((a,b) => (a.pct??101)-(b.pct??101));
-    const totalAcord = filas.reduce((s,f)=>s+f.acordado,0);
-    const totalReal  = filas.reduce((s,f)=>s+f.real,0);
-    return { label, isCurrent, filas, totalAcord, totalReal, pctGlobal: totalAcord>0?Math.round((totalReal/totalAcord)*100):0 };
+    const totalAcord      = filas.reduce((s,f)=>s+f.acordado,0);
+    const totalAcordTotal = filas.reduce((s,f)=>s+f.acordadoTotal,0);
+    const totalReal       = filas.reduce((s,f)=>s+f.real,0);
+    return { label, isCurrent, filas, totalAcord, totalAcordTotal, totalReal, pctGlobal: totalAcord>0?Math.round((totalReal/totalAcord)*100):0 };
   }, [modo, weekOffset, acuerdos, filtroEmp, filtroSede, calcAcordado, calcReal, empresas, sedes]);
 
   // ── MODO MES — heatmap de semanas ───────────────────────────────────────────
@@ -1413,7 +1414,7 @@ function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
         {[
           { label:"Cumplimiento global", value:`${pctGlobal??0}%`, color:pctColor(pctGlobal), border:true },
           { label:"Horas reales",   value:`${fmt1(modo==="semana"?semanaData?.totalReal:modo==="mes"?mesData?.totalReal:anioData?.totalReal||0)}h`, color:"#0ea5e9" },
-          { label:"Horas acordadas",value:`${fmt1(modo==="semana"?semanaData?.totalAcord:modo==="mes"?mesData?.totalAcord:anioData?.totalAcord||0)}h`, color:T.slate },
+          { label:"Horas acordadas",value:`${fmt1(modo==="semana"?semanaData?.totalAcordTotal:modo==="mes"?mesData?.totalAcord:anioData?.totalAcord||0)}h`, color:T.slate },
           { label:"Al día ✅",  value:(modo==="semana"?semanaData?.filas:modo==="mes"?mesData?.filas:anioData?.filas||[])?.filter(f=>(f.pct??f.pctTotal)>=100).length??0, color:"#16a34a" },
           { label:"En riesgo 🔴",value:(modo==="semana"?semanaData?.filas:modo==="mes"?mesData?.filas:anioData?.filas||[])?.filter(f=>{const p=f.pct??f.pctTotal;return p!==null&&p<50;}).length??0, color:"#dc2626" },
         ].map(st=>(
