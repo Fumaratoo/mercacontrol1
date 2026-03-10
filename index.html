@@ -1360,6 +1360,90 @@ function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
   const curLabel  = modo==="semana"?semanaData?.label:modo==="mes"?mesData?.label:anioData?.yr;
   const pctGlobal = modo==="semana"?semanaData?.pctGlobal:modo==="mes"?mesData?.pctGlobal:anioData?.pctGlobal;
 
+  // ── Exportar cumplimiento ──────────────────────────────────────────────────
+  const [showExportCumpl, setShowExportCumpl] = useState(false);
+
+  const exportarCumplimiento = (tipo) => {
+    const esc = v => { const s = String(v??''); return (s.includes(',')||s.includes('"')) ? `"${s.replace(/"/g,'""')}"` : s; };
+    const estado = p => p===null?'Sin datos':p>=100?'✅ Al día':p>=70?'🟡 En progreso':p>=40?'🟠 En riesgo':'🔴 Crítico';
+    let headers=[], rows=[], nombre='';
+
+    if (modo==='semana' && semanaData) {
+      nombre = `Cumplimiento_Semana_${curLabel?.replace(/\s/g,'_')||'actual'}`;
+      if (tipo === 'resumen') {
+        headers = ['Proveedor','Sede','Horas acordadas (semana)','Horas acum. hasta hoy','Horas reales','Cumplimiento %','Estado'];
+        rows = semanaData.filas.map(f => [
+          f.emp?.nombre||'—', f.sede?.nombre||'—',
+          fmt1(f.acordadoTotal), fmt1(f.acordado), fmt1(f.real),
+          f.pct!==null?f.pct+'%':'—', estado(f.pct)
+        ].map(esc).join(','));
+        // Totales
+        rows.push(['','TOTAL GENERAL',
+          fmt1(semanaData.filas.reduce((s,f)=>s+f.acordadoTotal,0)),
+          fmt1(semanaData.totalAcord),
+          fmt1(semanaData.totalReal),
+          semanaData.pctGlobal+'%', estado(semanaData.pctGlobal)
+        ].map(esc).join(','));
+      } else {
+        // Por día
+        headers = ['Proveedor','Sede','Día','Horas acordadas','Horas reales','Cumplimiento %','Estado'];
+        semanaData.filas.forEach(f => {
+          f.diasData.forEach(d => {
+            rows.push([
+              f.emp?.nombre||'—', f.sede?.nombre||'—',
+              d.diaShort, d.dayAcordado,
+              d.isPast ? fmt1(d.dayReal) : '—',
+              d.dayPct!==null ? d.dayPct+'%' : (d.isFuture?'Pendiente':'—'),
+              d.isPast ? estado(d.dayPct) : (d.isFuture?'Pendiente':'Sin acuerdo')
+            ].map(esc).join(','));
+          });
+        });
+      }
+    } else if (modo==='mes' && mesData) {
+      nombre = `Cumplimiento_Mes_${mesData.label?.replace(/\s/g,'_')||'actual'}`;
+      const semLabels = mesData.semanas.map((_,i)=>`Sem ${i+1}`);
+      headers = ['Proveedor','Sede',...semLabels,'Total Mes %','Horas acordadas','Horas reales','Estado'];
+      rows = mesData.filas.map(f => [
+        f.emp?.nombre||'—', f.sede?.nombre||'—',
+        ...f.semsData.map(s=>s.pct!==null?s.pct+'%':'—'),
+        f.pctTotal!==null?f.pctTotal+'%':'—',
+        fmt1(f.totalAc), fmt1(f.totalRe), estado(f.pctTotal)
+      ].map(esc).join(','));
+      rows.push(['','TOTAL',...mesData.filas.length>0?mesData.semanas.map((_,i)=>{
+        const ac=mesData.filas.reduce((s,f)=>s+f.semsData[i].ac,0);
+        const re=mesData.filas.reduce((s,f)=>s+f.semsData[i].re,0);
+        return ac>0?Math.round((re/ac)*100)+'%':'—';
+      }):[],
+        mesData.pctGlobal+'%',
+        fmt1(mesData.totalAcord), fmt1(mesData.totalReal), estado(mesData.pctGlobal)
+      ].map(esc).join(','));
+    } else if (modo==='año' && anioData) {
+      nombre = `Cumplimiento_Año_${anioData.yr}`;
+      const mesLabels = anioData.meses.map(m=>m.label);
+      headers = ['Proveedor','Sede',...mesLabels,'Total Año %','Horas acordadas','Horas reales','Estado'];
+      rows = anioData.filas.map(f => [
+        f.emp?.nombre||'—', f.sede?.nombre||'—',
+        ...f.mesesData.map(m=>m.pct!==null?m.pct+'%':'—'),
+        f.pctTotal!==null?f.pctTotal+'%':'—',
+        fmt1(f.totalAc), fmt1(f.totalRe), estado(f.pctTotal)
+      ].map(esc).join(','));
+      rows.push(['','TOTAL',...anioData.globalMeses.map(m=>m.pct!==null?m.pct+'%':'—'),
+        anioData.pctGlobal+'%',
+        fmt1(anioData.totalAcord), fmt1(anioData.totalReal), estado(anioData.pctGlobal)
+      ].map(esc).join(','));
+    }
+
+    if (!rows.length) return;
+    const csv = '\uFEFF' + [headers.map(esc).join(','), ...rows].join('\r\n');
+    const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `Canaveral_${nombre}_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+    setShowExportCumpl(false);
+  };
+
   // Mini badge % para heatmaps
   const PctCell = ({pct, small}) => {
     if (pct === null) return <span style={{fontSize:10,color:T.muted}}>—</span>;
@@ -1369,10 +1453,82 @@ function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
   return (
     <div style={{ maxWidth: 960, margin: "0 auto", paddingBottom: 40 }}>
 
+      {/* ── Modal exportar cumplimiento ── */}
+      {showExportCumpl && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20 }}
+          onClick={e=>e.target===e.currentTarget&&setShowExportCumpl(false)}>
+          <div style={{ background:"#fff",borderRadius:20,width:"100%",maxWidth:420,boxShadow:"0 24px 64px rgba(0,0,0,.25)",overflow:"hidden" }}>
+            <div style={{ background:"#05200b",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+              <div>
+                <div style={{ color:"#fff",fontSize:18,fontWeight:900 }}>📥 Exportar Cumplimiento</div>
+                <div style={{ color:"#7dd105",fontSize:12,marginTop:3 }}>{curLabel} · {(modo==="semana"?semanaData?.filas:modo==="mes"?mesData?.filas:anioData?.filas||[])?.length||0} acuerdos</div>
+              </div>
+              <button onClick={()=>setShowExportCumpl(false)} style={{ background:"rgba(255,255,255,.15)",border:"none",color:"#fff",width:32,height:32,borderRadius:8,cursor:"pointer",fontSize:18 }}>×</button>
+            </div>
+            <div style={{ padding:24 }}>
+              <p style={{ fontSize:13,color:T.slate,marginBottom:16,lineHeight:1.5 }}>
+                Descarga el reporte de cumplimiento como <strong>.csv</strong> — se abre directo en Excel con todas las columnas organizadas.
+              </p>
+              <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+                {modo==="semana" && (<>
+                  <button onClick={()=>exportarCumplimiento('resumen')} style={{
+                    padding:"16px",borderRadius:12,border:`2px solid #16a34a`,background:"#f0fdf4",
+                    color:"#166534",cursor:"pointer",fontWeight:700,fontSize:14,
+                    display:"flex",alignItems:"center",gap:12,textAlign:"left"
+                  }}>
+                    <span style={{fontSize:28}}>📋</span>
+                    <div>
+                      <div style={{fontWeight:800}}>Resumen semanal</div>
+                      <div style={{fontSize:12,color:"#4ade80",marginTop:2}}>Proveedor · Sede · Acordado · Real · % por semana</div>
+                    </div>
+                  </button>
+                  <button onClick={()=>exportarCumplimiento('dia')} style={{
+                    padding:"16px",borderRadius:12,border:`2px solid #2563eb`,background:"#eff6ff",
+                    color:"#1d4ed8",cursor:"pointer",fontWeight:700,fontSize:14,
+                    display:"flex",alignItems:"center",gap:12,textAlign:"left"
+                  }}>
+                    <span style={{fontSize:28}}>📅</span>
+                    <div>
+                      <div style={{fontWeight:800}}>Desglose por día</div>
+                      <div style={{fontSize:12,color:"#60a5fa",marginTop:2}}>Una fila por cada proveedor + día de la semana</div>
+                    </div>
+                  </button>
+                </>)}
+                {(modo==="mes"||modo==="año") && (
+                  <button onClick={()=>exportarCumplimiento('heatmap')} style={{
+                    padding:"16px",borderRadius:12,border:`2px solid #7c3aed`,background:"#ede9fe",
+                    color:"#5b21b6",cursor:"pointer",fontWeight:700,fontSize:14,
+                    display:"flex",alignItems:"center",gap:12,textAlign:"left"
+                  }}>
+                    <span style={{fontSize:28}}>🗓️</span>
+                    <div>
+                      <div style={{fontWeight:800}}>Heatmap {modo==="mes"?"por semanas":"por meses"}</div>
+                      <div style={{fontSize:12,color:"#a78bfa",marginTop:2}}>Proveedor · Sede · % por {modo==="mes"?"semana":"mes"} · Total</div>
+                    </div>
+                  </button>
+                )}
+              </div>
+              <div style={{ marginTop:14,padding:"10px 12px",background:T.bg,borderRadius:8,fontSize:12,color:T.slate }}>
+                💡 El archivo incluye una fila de <strong>TOTAL GENERAL</strong> al final para resumen ejecutivo.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
-      <div style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 900, color: T.navy, margin: 0 }}>📊 Cumplimiento de Horas</h2>
-        <p style={{ fontSize: 13, color: T.muted, margin: "4px 0 0" }}>Detecta qué proveedores y sedes están cumpliendo — por semana, mes o año</p>
+      <div style={{ marginBottom: 16, display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:10 }}>
+        <div>
+          <h2 style={{ fontSize: 20, fontWeight: 900, color: T.navy, margin: 0 }}>📊 Cumplimiento de Horas</h2>
+          <p style={{ fontSize: 13, color: T.muted, margin: "4px 0 0" }}>Detecta qué proveedores y sedes están cumpliendo — por semana, mes o año</p>
+        </div>
+        <button onClick={()=>setShowExportCumpl(true)} style={{
+          padding:"9px 18px", borderRadius:10, border:"none",
+          background:"#16a34a", color:"#fff", fontWeight:800, fontSize:13, cursor:"pointer",
+          display:"flex", alignItems:"center", gap:8
+        }}>
+          📥 Descargar Excel
+        </button>
       </div>
 
       {/* Modo + Navegador */}
