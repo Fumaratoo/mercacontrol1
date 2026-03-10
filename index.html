@@ -1364,129 +1364,90 @@ function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
 
   // ── Exportar cumplimiento ──────────────────────────────────────────────────
   const [showExportCumpl, setShowExportCumpl] = useState(false);
-  const [exportPeriodo,   setExportPeriodo]   = useState("semana"); // semana | dia | mes | año
+  const [exportHojas,     setExportHojas]     = useState({ semana:true, dia:true, mes:true, año:true });
+  const [exportProvs,     setExportProvs]     = useState([]);
+
+  const toggleExportHoja = k => setExportHojas(p => ({ ...p, [k]: !p[k] }));
+  const toggleExportProv = id => setExportProvs(p => p.includes(id) ? p.filter(x=>x!==id) : [...p, id]);
+  const proveedoresDisp  = useMemo(() => [...new Set(acuerdos.map(a=>a.proveedorId))]
+    .map(id => empresas.find(e=>e.id===id)).filter(Boolean), [acuerdos, empresas]);
 
   const exportarCumplimiento = () => {
-    const XLSX   = window.XLSX;
+    const XLSX = window.XLSX;
     if (!XLSX) { alert("SheetJS no cargó, intenta recargar la página."); return; }
-    const estado = p => p===null?'Sin datos':p>=100?'Al dia':p>=70?'En progreso':p>=40?'En riesgo':'Critico';
-    const wb     = XLSX.utils.book_new();
+    const estado  = p => p===null?'Sin datos':p>=100?'Al dia':p>=70?'En progreso':p>=40?'En riesgo':'Critico';
+    const wb      = XLSX.utils.book_new();
+    const filtrar = filas => exportProvs.length===0 ? filas : filas.filter(f=>exportProvs.includes(f.emp?.id));
 
-    // ── Hoja 1: Semana Resumen ──────────────────────────────────────────────
-    if (semanaData?.filas?.length) {
-      const data = [
-        ['Proveedor','Sede','Horas acordadas (semana)','Horas acum. hasta hoy','Horas reales','Cumplimiento %','Estado'],
-        ...semanaData.filas.map(f => [
-          f.emp?.nombre||'—', f.sede?.nombre||'—',
-          fmt1(f.acordadoTotal), fmt1(f.acordado), fmt1(f.real),
-          f.pct!==null ? f.pct/100 : null, estado(f.pct)
-        ]),
-        ['','TOTAL GENERAL',
-          fmt1(semanaData.filas.reduce((s,f)=>s+f.acordadoTotal,0)),
-          fmt1(semanaData.totalAcord), fmt1(semanaData.totalReal),
-          semanaData.pctGlobal/100, estado(semanaData.pctGlobal)
-        ]
-      ];
-      const ws = XLSX.utils.aoa_to_sheet(data);
-      // Formatear columna % como porcentaje
-      const pctCol = 5; // columna F (0-index)
-      for (let r = 1; r <= data.length-1; r++) {
-        const cell = ws[XLSX.utils.encode_cell({r, c: pctCol})];
-        if (cell && cell.v !== null && typeof cell.v === 'number') cell.z = '0%';
+    if (exportHojas.semana && semanaData?.filas?.length) {
+      const filas = filtrar(semanaData.filas);
+      if (filas.length) {
+        const totAc = filas.reduce((s,f)=>s+f.acordado,0);
+        const totRe = filas.reduce((s,f)=>s+f.real,0);
+        const data = [
+          ['Proveedor','Sede','Horas acordadas (semana)','Horas acum. hasta hoy','Horas reales','Cumplimiento %','Estado'],
+          ...filas.map(f=>[f.emp?.nombre||'—',f.sede?.nombre||'—',fmt1(f.acordadoTotal),fmt1(f.acordado),fmt1(f.real),f.pct!==null?f.pct/100:null,estado(f.pct)]),
+          ['','TOTAL GENERAL',fmt1(filas.reduce((s,f)=>s+f.acordadoTotal,0)),fmt1(totAc),fmt1(totRe),totAc>0?Math.round(totRe/totAc*100)/100:null,estado(totAc>0?Math.round(totRe/totAc*100):null)]
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        for(let r=1;r<data.length;r++){const c=ws[XLSX.utils.encode_cell({r,c:5})];if(c&&typeof c.v==='number')c.z='0%';}
+        ws['!cols']=[30,28,20,20,14,16,14].map(w=>({wch:w}));
+        XLSX.utils.book_append_sheet(wb, ws, 'Semana Resumen');
       }
-      ws['!cols'] = [30,28,20,20,14,16,14].map(w=>({wch:w}));
-      XLSX.utils.book_append_sheet(wb, ws, 'Semana Resumen');
     }
 
-    // ── Hoja 2: Por Día ──────────────────────────────────────────────────────
-    if (semanaData?.filas?.length) {
-      const data = [
-        ['Proveedor','Sede','Dia','Horas acordadas','Horas reales','Cumplimiento %','Estado']
-      ];
-      semanaData.filas.forEach(f => {
-        f.diasData.forEach(d => {
-          data.push([
-            f.emp?.nombre||'—', f.sede?.nombre||'—',
-            d.diaShort, d.dayAcordado,
-            d.isPast ? fmt1(d.dayReal) : null,
-            d.dayPct!==null ? d.dayPct/100 : null,
-            d.isPast ? estado(d.dayPct) : (d.isFuture?'Pendiente':'Sin acuerdo')
-          ]);
-        });
-      });
-      const ws = XLSX.utils.aoa_to_sheet(data);
-      for (let r = 1; r < data.length; r++) {
-        const cell = ws[XLSX.utils.encode_cell({r, c: 5})];
-        if (cell && typeof cell.v === 'number') cell.z = '0%';
+    if (exportHojas.dia && semanaData?.filas?.length) {
+      const filas = filtrar(semanaData.filas);
+      if (filas.length) {
+        const data = [['Proveedor','Sede','Dia','Horas acordadas','Horas reales','Cumplimiento %','Estado']];
+        filas.forEach(f=>f.diasData.forEach(d=>data.push([f.emp?.nombre||'—',f.sede?.nombre||'—',d.diaShort,d.dayAcordado,d.isPast?fmt1(d.dayReal):null,d.dayPct!==null?d.dayPct/100:null,d.isPast?estado(d.dayPct):(d.isFuture?'Pendiente':'Sin acuerdo')])));
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        for(let r=1;r<data.length;r++){const c=ws[XLSX.utils.encode_cell({r,c:5})];if(c&&typeof c.v==='number')c.z='0%';}
+        ws['!cols']=[30,28,8,16,14,16,14].map(w=>({wch:w}));
+        XLSX.utils.book_append_sheet(wb, ws, 'Por Dia');
       }
-      ws['!cols'] = [30,28,8,16,14,16,14].map(w=>({wch:w}));
-      XLSX.utils.book_append_sheet(wb, ws, 'Por Dia');
     }
 
-    // ── Hoja 3: Mes ──────────────────────────────────────────────────────────
-    if (mesData?.filas?.length) {
-      const semLabels = mesData.semanas.map((_,i)=>`Sem ${i+1}`);
-      const data = [
-        ['Proveedor','Sede',...semLabels,'Total Mes %','Horas acordadas','Horas reales','Estado'],
-        ...mesData.filas.map(f => [
-          f.emp?.nombre||'—', f.sede?.nombre||'—',
-          ...f.semsData.map(s=>s.pct!==null?s.pct/100:null),
-          f.pctTotal!==null?f.pctTotal/100:null,
-          fmt1(f.totalAc), fmt1(f.totalRe), estado(f.pctTotal)
-        ]),
-        ['','TOTAL',
-          ...mesData.semanas.map((_,i)=>{
-            const ac=mesData.filas.reduce((s,f)=>s+f.semsData[i].ac,0);
-            const re=mesData.filas.reduce((s,f)=>s+f.semsData[i].re,0);
-            return ac>0?Math.round((re/ac)*100)/100:null;
-          }),
-          mesData.pctGlobal/100, fmt1(mesData.totalAcord), fmt1(mesData.totalReal), estado(mesData.pctGlobal)
-        ]
-      ];
-      const ws = XLSX.utils.aoa_to_sheet(data);
-      // Formatear columnas de semanas + total como %
-      const numSems = semLabels.length;
-      for (let r = 1; r < data.length; r++) {
-        for (let c = 2; c <= 2 + numSems; c++) {
-          const cell = ws[XLSX.utils.encode_cell({r, c})];
-          if (cell && typeof cell.v === 'number') cell.z = '0%';
-        }
+    if (exportHojas.mes && mesData?.filas?.length) {
+      const filas = filtrar(mesData.filas);
+      if (filas.length) {
+        const semLabels = mesData.semanas.map((_,i)=>`Sem ${i+1}`);
+        const totAc = filas.reduce((s,f)=>s+f.totalAc,0);
+        const totRe = filas.reduce((s,f)=>s+f.totalRe,0);
+        const data = [
+          ['Proveedor','Sede',...semLabels,'Total Mes %','Horas acordadas','Horas reales','Estado'],
+          ...filas.map(f=>[f.emp?.nombre||'—',f.sede?.nombre||'—',...f.semsData.map(s=>s.pct!==null?s.pct/100:null),f.pctTotal!==null?f.pctTotal/100:null,fmt1(f.totalAc),fmt1(f.totalRe),estado(f.pctTotal)]),
+          ['','TOTAL',...mesData.semanas.map((_,i)=>{const ac=filas.reduce((s,f)=>s+f.semsData[i].ac,0);const re=filas.reduce((s,f)=>s+f.semsData[i].re,0);return ac>0?Math.round(re/ac*100)/100:null;}),totAc>0?Math.round(totRe/totAc*100)/100:null,fmt1(totAc),fmt1(totRe),estado(totAc>0?Math.round(totRe/totAc*100):null)]
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        const nc=semLabels.length;
+        for(let r=1;r<data.length;r++){for(let c=2;c<=2+nc;c++){const cl=ws[XLSX.utils.encode_cell({r,c})];if(cl&&typeof cl.v==='number')cl.z='0%';}}
+        ws['!cols']=[30,28,...semLabels.map(()=>({wch:9})),14,16,14,14].map(x=>typeof x==='object'?x:{wch:x});
+        XLSX.utils.book_append_sheet(wb, ws, mesData.label||'Mes');
       }
-      ws['!cols'] = [30,28,...semLabels.map(()=>({wch:9})),14,16,14,14].map(x=>typeof x==='object'?x:{wch:x});
-      XLSX.utils.book_append_sheet(wb, ws, mesData.label||'Mes');
     }
 
-    // ── Hoja 4: Año ──────────────────────────────────────────────────────────
-    if (anioData?.filas?.length) {
-      const mesLabels = anioData.meses.map(m=>m.label);
-      const data = [
-        ['Proveedor','Sede',...mesLabels,'Total Año %','Horas acordadas','Horas reales','Estado'],
-        ...anioData.filas.map(f => [
-          f.emp?.nombre||'—', f.sede?.nombre||'—',
-          ...f.mesesData.map(m=>m.pct!==null?m.pct/100:null),
-          f.pctTotal!==null?f.pctTotal/100:null,
-          fmt1(f.totalAc), fmt1(f.totalRe), estado(f.pctTotal)
-        ]),
-        ['','TOTAL',
-          ...anioData.globalMeses.map(m=>m.pct!==null?m.pct/100:null),
-          anioData.pctGlobal/100, fmt1(anioData.totalAcord), fmt1(anioData.totalReal), estado(anioData.pctGlobal)
-        ]
-      ];
-      const ws = XLSX.utils.aoa_to_sheet(data);
-      for (let r = 1; r < data.length; r++) {
-        for (let c = 2; c <= 2 + 12; c++) {
-          const cell = ws[XLSX.utils.encode_cell({r, c})];
-          if (cell && typeof cell.v === 'number') cell.z = '0%';
-        }
+    if (exportHojas.año && anioData?.filas?.length) {
+      const filas = filtrar(anioData.filas);
+      if (filas.length) {
+        const mesLabels = anioData.meses.map(m=>m.label);
+        const totAc = filas.reduce((s,f)=>s+f.totalAc,0);
+        const totRe = filas.reduce((s,f)=>s+f.totalRe,0);
+        const data = [
+          ['Proveedor','Sede',...mesLabels,'Total Año %','Horas acordadas','Horas reales','Estado'],
+          ...filas.map(f=>[f.emp?.nombre||'—',f.sede?.nombre||'—',...f.mesesData.map(m=>m.pct!==null?m.pct/100:null),f.pctTotal!==null?f.pctTotal/100:null,fmt1(f.totalAc),fmt1(f.totalRe),estado(f.pctTotal)]),
+          ['','TOTAL',...anioData.globalMeses.map(m=>m.pct!==null?m.pct/100:null),totAc>0?Math.round(totRe/totAc*100)/100:null,fmt1(totAc),fmt1(totRe),estado(totAc>0?Math.round(totRe/totAc*100):null)]
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        for(let r=1;r<data.length;r++){for(let c=2;c<=14;c++){const cl=ws[XLSX.utils.encode_cell({r,c})];if(cl&&typeof cl.v==='number')cl.z='0%';}}
+        ws['!cols']=[30,28,...mesLabels.map(()=>({wch:8})),14,16,14,14].map(x=>typeof x==='object'?x:{wch:x});
+        XLSX.utils.book_append_sheet(wb, ws, String(anioData.yr));
       }
-      ws['!cols'] = [30,28,...mesLabels.map(()=>({wch:8})),14,16,14,14].map(x=>typeof x==='object'?x:{wch:x});
-      XLSX.utils.book_append_sheet(wb, ws, String(anioData.yr));
     }
 
-    if (wb.SheetNames.length === 0) { alert('No hay datos para exportar.'); return; }
-
-    const fecha = new Date().toISOString().slice(0,10);
-    XLSX.writeFile(wb, `Canaveral_Cumplimiento_${fecha}.xlsx`);
+    if (wb.SheetNames.length === 0) { alert('No hay datos para las hojas seleccionadas.'); return; }
+    const suf  = exportProvs.length===1 ? `_${proveedoresDisp.find(p=>p.id===exportProvs[0])?.nombre?.replace(/\s/g,'_')||''}`  : exportProvs.length>1?`_${exportProvs.length}proveedores`:'';
+    XLSX.writeFile(wb, `Canaveral_Cumplimiento${suf}_${new Date().toISOString().slice(0,10)}.xlsx`);
     setShowExportCumpl(false);
   };
 
@@ -1503,49 +1464,97 @@ function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
       {showExportCumpl && (
         <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20 }}
           onClick={e=>e.target===e.currentTarget&&setShowExportCumpl(false)}>
-          <div style={{ background:"#fff",borderRadius:20,width:"100%",maxWidth:420,boxShadow:"0 24px 64px rgba(0,0,0,.25)",overflow:"hidden" }}>
+          <div style={{ background:"#fff",borderRadius:20,width:"100%",maxWidth:460,maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 64px rgba(0,0,0,.25)",overflow:"hidden" }}>
 
-            <div style={{ background:"#05200b",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            <div style={{ background:"#05200b",padding:"18px 22px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0 }}>
               <div>
-                <div style={{ color:"#fff",fontSize:18,fontWeight:900 }}>📥 Exportar Cumplimiento</div>
-                <div style={{ color:"#7dd105",fontSize:12,marginTop:3 }}>Un solo archivo Excel con todas las vistas</div>
+                <div style={{ color:"#fff",fontSize:17,fontWeight:900 }}>📥 Exportar Cumplimiento</div>
+                <div style={{ color:"#7dd105",fontSize:12,marginTop:2 }}>
+                  {Object.values(exportHojas).filter(Boolean).length} hoja{Object.values(exportHojas).filter(Boolean).length!==1?"s":""} · {exportProvs.length===0?"Todos los proveedores":`${exportProvs.length} proveedor${exportProvs.length!==1?"es":""}`}
+                </div>
               </div>
               <button onClick={()=>setShowExportCumpl(false)} style={{ background:"rgba(255,255,255,.15)",border:"none",color:"#fff",width:32,height:32,borderRadius:8,cursor:"pointer",fontSize:18 }}>×</button>
             </div>
 
-            <div style={{ padding:24 }}>
-              <p style={{ fontSize:13,color:T.slate,marginBottom:18,lineHeight:1.6 }}>
-                Se descarga un <strong>.xlsx</strong> con <strong>4 pestañas</strong> dentro del mismo archivo:
-              </p>
-
-              {/* Pestañas que tendrá el xlsx */}
-              <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:22 }}>
-                {[
-                  { icon:"📋", color:"#16a34a", bg:"#f0fdf4", label:"Semana Resumen",  desc:`${semanaData?.label||'Semana actual'} · ${semanaData?.filas?.length||0} acuerdos · ${semanaData?.pctGlobal||0}% global` },
-                  { icon:"📅", color:"#2563eb", bg:"#eff6ff", label:"Por Día",         desc:`Desglose diario Lun–Dom · ${(semanaData?.filas?.length||0)*7} filas` },
-                  { icon:"🗓️", color:"#7c3aed", bg:"#ede9fe", label:mesData?.label||"Mes actual",    desc:`${mesData?.filas?.length||0} acuerdos · ${mesData?.pctGlobal||0}% global` },
-                  { icon:"📆", color:"#ea580c", bg:"#fff7ed", label:String(anioData?.yr||new Date().getFullYear()), desc:`${anioData?.filas?.length||0} acuerdos · ${anioData?.pctGlobal||0}% global` },
-                ].map((p,i)=>(
-                  <div key={i} style={{ display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:10,background:p.bg,border:`1.5px solid ${p.color}22` }}>
-                    <span style={{ fontSize:22,flexShrink:0 }}>{p.icon}</span>
-                    <div>
-                      <div style={{ fontSize:13,fontWeight:800,color:p.color }}>{p.label}</div>
-                      <div style={{ fontSize:11,color:T.muted,marginTop:1 }}>{p.desc}</div>
-                    </div>
-                    <span style={{ marginLeft:"auto",fontSize:11,fontWeight:700,color:p.color,background:"#fff",borderRadius:99,padding:"2px 8px",border:`1px solid ${p.color}44` }}>Hoja {i+1}</span>
-                  </div>
-                ))}
+            <div style={{ overflowY:"auto",flex:1,padding:20 }}>
+              <div style={{ marginBottom:20 }}>
+                <div style={{ fontSize:11,fontWeight:800,color:T.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:10 }}>📑 Hojas a incluir</div>
+                <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                  {[
+                    { k:"semana", icon:"📋", label:"Semana Resumen", color:"#16a34a", bg:"#f0fdf4", desc:`${semanaData?.filas?.length||0} acuerdos` },
+                    { k:"dia",    icon:"📅", label:"Por Día",        color:"#2563eb", bg:"#eff6ff", desc:`${(semanaData?.filas?.length||0)*7} filas` },
+                    { k:"mes",    icon:"🗓️", label:mesData?.label||"Mes",  color:"#7c3aed", bg:"#ede9fe", desc:`${mesData?.filas?.length||0} acuerdos` },
+                    { k:"año",    icon:"📆", label:String(anioData?.yr||new Date().getFullYear()), color:"#ea580c", bg:"#fff7ed", desc:`${anioData?.filas?.length||0} acuerdos` },
+                  ].map(op=>{
+                    const sel=exportHojas[op.k];
+                    return (
+                      <div key={op.k} onClick={()=>toggleExportHoja(op.k)}
+                        style={{ display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:12,
+                          border:`2px solid ${sel?op.color:T.border}`,background:sel?op.bg:T.white,
+                          cursor:"pointer",transition:"all .15s",userSelect:"none" }}>
+                        <div style={{ width:18,height:18,borderRadius:4,border:`2px solid ${sel?op.color:T.muted}`,
+                          background:sel?op.color:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                          {sel && <span style={{color:"#fff",fontSize:11,fontWeight:900}}>✓</span>}
+                        </div>
+                        <span style={{fontSize:18,flexShrink:0}}>{op.icon}</span>
+                        <div>
+                          <div style={{fontSize:12,fontWeight:800,color:sel?op.color:T.navy}}>{op.label}</div>
+                          <div style={{fontSize:10,color:T.muted}}>{op.desc}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display:"flex",gap:8,marginTop:8 }}>
+                  <button onClick={()=>setExportHojas({semana:true,dia:true,mes:true,año:true})}
+                    style={{fontSize:11,padding:"4px 10px",borderRadius:6,border:`1px solid ${T.border}`,background:T.white,cursor:"pointer",color:T.slate,fontWeight:600}}>✓ Todas</button>
+                  <button onClick={()=>setExportHojas({semana:false,dia:false,mes:false,año:false})}
+                    style={{fontSize:11,padding:"4px 10px",borderRadius:6,border:`1px solid ${T.border}`,background:T.white,cursor:"pointer",color:T.slate,fontWeight:600}}>✕ Ninguna</button>
+                </div>
               </div>
 
-              <button onClick={exportarCumplimiento} style={{
-                width:"100%",padding:"15px",borderRadius:12,border:"none",fontSize:15,fontWeight:800,
-                cursor:"pointer",background:"#05200b",color:"#7dd105",
-                display:"flex",alignItems:"center",justifyContent:"center",gap:10
-              }}>
-                <span style={{fontSize:20}}>📥</span> Descargar todo en Excel
+              <div style={{ marginBottom:22 }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
+                  <div style={{ fontSize:11,fontWeight:800,color:T.muted,textTransform:"uppercase",letterSpacing:1 }}>🏭 Proveedores</div>
+                  <div style={{ display:"flex",gap:6 }}>
+                    <button onClick={()=>setExportProvs([])}
+                      style={{ fontSize:11,padding:"3px 10px",borderRadius:6,border:`1px solid ${exportProvs.length===0?T.brand:T.border}`,background:exportProvs.length===0?T.brandLight:T.white,cursor:"pointer",color:exportProvs.length===0?T.navyMid:T.slate,fontWeight:exportProvs.length===0?800:500 }}>Todos</button>
+                    {exportProvs.length>0&&<button onClick={()=>setExportProvs([])}
+                      style={{ fontSize:11,padding:"3px 10px",borderRadius:6,border:`1px solid ${T.border}`,background:"#fee2e2",cursor:"pointer",color:"#b91c1c",fontWeight:700 }}>✕ Limpiar</button>}
+                  </div>
+                </div>
+                <div style={{ maxHeight:160,overflowY:"auto",display:"flex",flexDirection:"column",gap:4,border:`1px solid ${T.border}`,borderRadius:10,padding:8 }}>
+                  {proveedoresDisp.length===0&&<div style={{fontSize:12,color:T.muted,padding:"8px",textAlign:"center"}}>No hay proveedores con acuerdos</div>}
+                  {proveedoresDisp.map(p=>{
+                    const sel=exportProvs.includes(p.id);
+                    return (
+                      <div key={p.id} onClick={()=>toggleExportProv(p.id)}
+                        style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,
+                          background:sel?"#f0fdf4":T.white,border:`1px solid ${sel?T.brand:T.border}`,
+                          cursor:"pointer",transition:"all .1s",userSelect:"none" }}>
+                        <div style={{ width:16,height:16,borderRadius:4,border:`2px solid ${sel?T.brand:T.muted}`,
+                          background:sel?T.brand:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                          {sel&&<span style={{color:"#fff",fontSize:10,fontWeight:900}}>✓</span>}
+                        </div>
+                        <span style={{fontSize:13,fontWeight:sel?700:400,color:sel?T.navyMid:T.slate}}>{p.nombre}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {exportProvs.length>0&&<div style={{marginTop:6,fontSize:11,color:T.muted}}>{exportProvs.length} proveedor{exportProvs.length!==1?"es":""} seleccionado{exportProvs.length!==1?"s":""}</div>}
+              </div>
+
+              <button onClick={exportarCumplimiento}
+                disabled={!Object.values(exportHojas).some(Boolean)}
+                style={{ width:"100%",padding:"14px",borderRadius:12,border:"none",fontSize:15,fontWeight:800,
+                  cursor:Object.values(exportHojas).some(Boolean)?"pointer":"not-allowed",
+                  background:Object.values(exportHojas).some(Boolean)?"#05200b":"#94a3b8",
+                  color:"#7dd105",display:"flex",alignItems:"center",justifyContent:"center",gap:10 }}>
+                <span style={{fontSize:20}}>📥</span>
+                Descargar Excel ({Object.values(exportHojas).filter(Boolean).length} {Object.values(exportHojas).filter(Boolean).length===1?"hoja":"hojas"})
               </button>
-              <div style={{ marginTop:12,textAlign:"center",fontSize:11,color:T.muted }}>
-                Incluye fila <strong>TOTAL GENERAL</strong> en cada hoja · Los % aparecen como porcentajes en Excel
+              <div style={{ marginTop:10,textAlign:"center",fontSize:11,color:T.muted }}>
+                Incluye fila <strong>TOTAL</strong> en cada hoja · % nativos en Excel
               </div>
             </div>
           </div>
