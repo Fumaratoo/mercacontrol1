@@ -1216,6 +1216,7 @@ function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
   const [yearOffset, setYearOffset] = useState(0);
   const [filtroEmp,  setFiltroEmp]  = useState("");
   const [filtroSede, setFiltroSede] = useState("");
+  const [subModo,    setSubModo]    = useState("resumen"); // "resumen" | "dia"
 
   const fmt1     = h => Math.round(h * 10) / 10;
   const pctColor = p => p === null ? T.muted : p >= 100 ? "#16a34a" : p >= 70 ? "#ca8a04" : p >= 40 ? "#ea580c" : "#dc2626";
@@ -1250,13 +1251,30 @@ function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
     const { mon, sun } = getWeekRange(weekOffset);
     const isCurrent = weekOffset === 0;
     const label = isCurrent ? "Semana actual" : fmtWeekLabel(mon, sun);
+    const hoyBase = new Date(); hoyBase.setHours(0,0,0,0);
     const filas = acuerdos
       .filter(a => (!filtroEmp || a.proveedorId === filtroEmp) && (!filtroSede || a.sedeId === filtroSede))
       .map(a => {
-        const acordado = calcAcordado(a, mon, sun);
-        const real     = calcReal(a.proveedorId, a.sedeId, mon, sun);
-        const pct      = acordado > 0 ? Math.min(100, Math.round((real/acordado)*100)) : null;
-        return { key:`${a.proveedorId}__${a.sedeId}`, emp: empresas.find(e=>e.id===a.proveedorId), sede: sedes.find(s=>s.id===a.sedeId), acordado, real, pct };
+        // Horas acordadas acumuladas hasta hoy (o hasta el fin de semana si es semana pasada)
+        const acordado     = calcAcordado(a, mon, sun);
+        // Total acordado para toda la semana (independiente del día actual)
+        const acordadoTotal = DIAS.reduce((s, d) => s + (Number(a.horas?.[d]) || 0), 0);
+        const real         = calcReal(a.proveedorId, a.sedeId, mon, sun);
+        const pct          = acordado > 0 ? Math.min(100, Math.round((real/acordado)*100)) : null;
+        // Desglose por día
+        const diasData = DIAS.map((d, i) => {
+          const dayDate = new Date(mon); dayDate.setDate(mon.getDate() + i);
+          const dayStart = new Date(dayDate); dayStart.setHours(0,0,0,0);
+          const dayEnd   = new Date(dayDate); dayEnd.setHours(23,59,59,999);
+          const dayAcordado = Number(a.horas?.[d]) || 0;
+          const isPast    = dayDate <= hoyBase;
+          const isToday   = dayDate.toDateString() === hoyBase.toDateString();
+          const isFuture  = dayDate > hoyBase;
+          const dayReal   = isPast ? calcReal(a.proveedorId, a.sedeId, dayStart, dayEnd) : null;
+          const dayPct    = dayAcordado > 0 && isPast ? Math.min(100, Math.round((dayReal/dayAcordado)*100)) : null;
+          return { dia: d, diaShort: DIAS_SHORT[i], dayDate, dayAcordado, dayReal, dayPct, isPast, isToday, isFuture };
+        });
+        return { key:`${a.proveedorId}__${a.sedeId}`, emp: empresas.find(e=>e.id===a.proveedorId), sede: sedes.find(s=>s.id===a.sedeId), acordado, acordadoTotal, real, pct, diasData };
       })
       .sort((a,b) => (a.pct??101)-(b.pct??101));
     const totalAcord = filas.reduce((s,f)=>s+f.acordado,0);
@@ -1410,23 +1428,117 @@ function CumplimientoView({ acuerdos, visitas, empresas, sedes }) {
       {modo === "semana" && semanaData && (
         semanaData.filas.length === 0
           ? <EmptyState />
-          : <div style={{ background:T.white, borderRadius:14, border:`1px solid ${T.border}`, overflow:"hidden" }}>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 80px 80px 1fr 70px", gap:8, padding:"10px 16px", background:T.bg, borderBottom:`1px solid ${T.border}`, fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase" }}>
-                <div>Proveedor</div><div>Sede</div><div style={{textAlign:"right"}}>Acordado</div><div style={{textAlign:"right"}}>Real</div><div style={{textAlign:"center"}}>Progreso</div><div style={{textAlign:"center"}}>%</div>
+          : <>
+              {/* Sub-toggle: Resumen / Por día */}
+              <div style={{ display:"flex", gap:6, marginBottom:14, alignItems:"center" }}>
+                {[["resumen","📋 Resumen semanal"],["dia","📅 Por día"]].map(([m,l])=>(
+                  <button key={m} onClick={()=>setSubModo(m)} style={{
+                    padding:"7px 16px", borderRadius:8, border:`1px solid ${subModo===m?T.brand:T.border}`,
+                    background:subModo===m?T.brandLight:T.white,
+                    color:subModo===m?T.navyMid:T.slate,
+                    fontSize:12, fontWeight:subModo===m?800:500, cursor:"pointer", transition:"all .15s"
+                  }}>{l}</button>
+                ))}
+                {semanaData.isCurrent && (
+                  <span style={{ marginLeft:"auto", fontSize:11, color:T.muted, fontStyle:"italic" }}>
+                    Horas acordadas acumuladas hasta hoy
+                  </span>
+                )}
               </div>
-              {semanaData.filas.map(f=>(
-                <div key={f.key} style={{ display:"grid", gridTemplateColumns:"1fr 1fr 80px 80px 1fr 70px", gap:8, padding:"11px 16px", borderBottom:`1px solid ${T.border}`, alignItems:"center", background:pctBg(f.pct) }}>
-                  <div style={{ fontSize:13,fontWeight:700,color:T.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{f.emp?.nombre||"—"}</div>
-                  <div style={{ fontSize:12,color:T.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>📍{f.sede?.nombre||"—"}</div>
-                  <div style={{ textAlign:"right",fontSize:13,color:T.slate }}>{fmt1(f.acordado)}h</div>
-                  <div style={{ textAlign:"right",fontSize:13,fontWeight:700,color:f.real>0?"#0ea5e9":T.muted }}>{fmt1(f.real)}h</div>
-                  <div style={{ position:"relative",height:8,borderRadius:99,background:T.border,overflow:"hidden" }}>
-                    <div style={{ position:"absolute",left:0,top:0,bottom:0,borderRadius:99,width:`${Math.min(100,f.pct||0)}%`,background:pctColor(f.pct),transition:"width .4s" }}/>
+
+              {/* ── Sub-vista RESUMEN ── */}
+              {subModo === "resumen" && (
+                <div style={{ background:T.white, borderRadius:14, border:`1px solid ${T.border}`, overflow:"hidden" }}>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 90px 90px 80px 1fr 70px", gap:6, padding:"10px 16px", background:T.bg, borderBottom:`1px solid ${T.border}`, fontSize:10, fontWeight:700, color:T.muted, textTransform:"uppercase" }}>
+                    <div>Proveedor</div>
+                    <div>Sede</div>
+                    <div style={{textAlign:"right"}}>Acum. hasta hoy</div>
+                    <div style={{textAlign:"right"}}>Total semana</div>
+                    <div style={{textAlign:"right"}}>Real</div>
+                    <div style={{textAlign:"center"}}>Progreso</div>
+                    <div style={{textAlign:"center"}}>%</div>
                   </div>
-                  <div style={{textAlign:"center"}}><PctCell pct={f.pct}/></div>
+                  {semanaData.filas.map(f=>(
+                    <div key={f.key} style={{ display:"grid", gridTemplateColumns:"1fr 1fr 90px 90px 80px 1fr 70px", gap:6, padding:"11px 16px", borderBottom:`1px solid ${T.border}`, alignItems:"center", background:pctBg(f.pct) }}>
+                      <div style={{ fontSize:13,fontWeight:700,color:T.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{f.emp?.nombre||"—"}</div>
+                      <div style={{ fontSize:12,color:T.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>📍{f.sede?.nombre||"—"}</div>
+                      <div style={{ textAlign:"right" }}>
+                        <div style={{ fontSize:13,fontWeight:800,color:T.slate }}>{fmt1(f.acordado)}h</div>
+                        <div style={{ fontSize:10,color:T.muted }}>esperado</div>
+                      </div>
+                      <div style={{ textAlign:"right" }}>
+                        <div style={{ fontSize:12,color:T.muted }}>{fmt1(f.acordadoTotal)}h</div>
+                        <div style={{ fontSize:10,color:T.muted }}>semana</div>
+                      </div>
+                      <div style={{ textAlign:"right",fontSize:13,fontWeight:700,color:f.real>0?"#0ea5e9":T.muted }}>{fmt1(f.real)}h</div>
+                      <div style={{ position:"relative",height:8,borderRadius:99,background:T.border,overflow:"hidden" }}>
+                        <div style={{ position:"absolute",left:0,top:0,bottom:0,borderRadius:99,width:`${Math.min(100,f.pct||0)}%`,background:pctColor(f.pct),transition:"width .4s" }}/>
+                      </div>
+                      <div style={{textAlign:"center"}}><PctCell pct={f.pct}/></div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+
+              {/* ── Sub-vista POR DÍA ── */}
+              {subModo === "dia" && (
+                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  {semanaData.filas.map(f=>(
+                    <div key={f.key} style={{ background:T.white, borderRadius:14, border:`1px solid ${T.border}`, overflow:"hidden" }}>
+                      {/* Header del acuerdo */}
+                      <div style={{ padding:"12px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between", alignItems:"center", background:pctBg(f.pct) }}>
+                        <div>
+                          <div style={{ fontSize:13,fontWeight:800,color:T.navy }}>{f.emp?.nombre||"—"}</div>
+                          <div style={{ fontSize:11,color:T.muted }}>📍 {f.sede?.nombre||"—"}</div>
+                        </div>
+                        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                          <div style={{ textAlign:"right" }}>
+                            <div style={{ fontSize:11,color:T.muted }}>Acum. {fmt1(f.real)}h / {fmt1(f.acordado)}h</div>
+                            <div style={{ fontSize:10,color:T.muted }}>Total sem: {fmt1(f.acordadoTotal)}h</div>
+                          </div>
+                          <PctCell pct={f.pct}/>
+                        </div>
+                      </div>
+                      {/* Fila de días */}
+                      <div style={{ padding:"12px 16px", display:"flex", gap:6, flexWrap:"wrap" }}>
+                        {f.diasData.map((d, i)=>{
+                          const cellBg = d.isToday ? "#eff6ff" : d.isFuture ? T.bg : pctBg(d.dayPct);
+                          const borderCol = d.isToday ? "#3b82f6" : d.isFuture ? T.border : (d.dayPct !== null ? pctColor(d.dayPct) : T.border);
+                          return (
+                            <div key={i} style={{
+                              flex:"1 1 70px", textAlign:"center", borderRadius:10, padding:"10px 6px",
+                              background:cellBg, border:`2px solid ${borderCol}`,
+                              opacity: d.isFuture && d.dayAcordado === 0 ? 0.4 : 1
+                            }}>
+                              <div style={{ fontSize:10,fontWeight:800,color:d.isToday?"#1d4ed8":T.muted,marginBottom:4,textTransform:"uppercase" }}>
+                                {d.diaShort}{d.isToday?" ●":""}
+                              </div>
+                              <div style={{ fontSize:12,fontWeight:700,color:T.slate,marginBottom:2 }}>
+                                {d.dayAcordado > 0 ? `${d.dayAcordado}h` : "—"}
+                              </div>
+                              {d.isPast && d.dayAcordado > 0 ? (
+                                <>
+                                  <div style={{ fontSize:12,fontWeight:800,color:d.dayReal>0?"#0ea5e9":T.muted }}>
+                                    {fmt1(d.dayReal)}h
+                                  </div>
+                                  <div style={{ marginTop:4 }}>
+                                    <PctCell pct={d.dayPct} small/>
+                                  </div>
+                                </>
+                              ) : d.isPast && d.dayAcordado === 0 ? (
+                                <div style={{ fontSize:10,color:T.muted }}>Sin acuerdo</div>
+                              ) : (
+                                <div style={{ fontSize:10,color:T.muted,marginTop:4 }}>Pendiente</div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
       )}
 
       {/* ── VISTA MES — heatmap semanas ── */}
