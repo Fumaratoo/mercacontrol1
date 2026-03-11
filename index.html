@@ -2508,13 +2508,8 @@ function AdminDashboard({ user, registros, sedes, empresas, onEdit, onDelete, on
     filtered.filter(r => !filterTipo || r.tipo === filterTipo),
     [filtered, filterTipo]);
 
-  const filteredVisitasList = useMemo(() =>
-    visitas.filter(v => !filterStatus || v.status === filterStatus),
-    [visitas, filterStatus]);
-
-  // Reset pages whenever filters change
+  // Reset movimientos page when filters change
   useEffect(() => { setPageMovs(1); }, [filterSede, filterProveedor, filterDateFrom, filterDateTo, filterTipo, filterSearch]);
-  useEffect(() => { setPageVisitas(1); }, [filterSede, filterProveedor, filterDateFrom, filterDateTo, filterStatus, filterSearch]);
 
   const byDate = useMemo(() => {
     const paged = filteredMovs.slice((pageMovs-1)*PAGE_SIZE, pageMovs*PAGE_SIZE);
@@ -2524,15 +2519,6 @@ function AdminDashboard({ user, registros, sedes, empresas, onEdit, onDelete, on
       return acc;
     }, {});
   }, [filteredMovs, pageMovs, PAGE_SIZE]);
-
-  const byDateVisitas = useMemo(() => {
-    const paged = filteredVisitasList.slice((pageVisitas-1)*PAGE_SIZE, pageVisitas*PAGE_SIZE);
-    return paged.reduce((acc, v) => {
-      const d = new Date(v.fecha).toDateString();
-      (acc[d] = acc[d] || []).push(v);
-      return acc;
-    }, {});
-  }, [filteredVisitasList, pageVisitas, PAGE_SIZE]);
 
   // ── Algoritmo de visitas ──────────────────────────────────────────────────
   // Agrupa por sede + proveedor + día y empareja entradas con salidas
@@ -2600,6 +2586,22 @@ function AdminDashboard({ user, registros, sedes, empresas, onEdit, onDelete, on
 
     return resultado.sort((a, b) => b.fecha - a.fecha);
   }, [filtered]);
+
+  // Estos dependen de visitas, deben ir DESPUÉS de su declaración
+  const filteredVisitasList = useMemo(() =>
+    visitas.filter(v => !filterStatus || v.status === filterStatus),
+    [visitas, filterStatus]);
+
+  useEffect(() => { setPageVisitas(1); }, [filterSede, filterProveedor, filterDateFrom, filterDateTo, filterStatus, filterSearch]);
+
+  const byDateVisitas = useMemo(() => {
+    const paged = filteredVisitasList.slice((pageVisitas-1)*PAGE_SIZE, pageVisitas*PAGE_SIZE);
+    return paged.reduce((acc, v) => {
+      const d = new Date(v.fecha).toDateString();
+      (acc[d] = acc[d] || []).push(v);
+      return acc;
+    }, {});
+  }, [filteredVisitasList, pageVisitas, PAGE_SIZE]);
 
   const fmtDuracion = (min) => {
     if (min === null) return null;
@@ -2746,7 +2748,7 @@ function AdminDashboard({ user, registros, sedes, empresas, onEdit, onDelete, on
               background: viewAs !== "admin" ? "rgba(125,209,5,.25)" : "rgba(255,255,255,.1)",
               border: "none", color: viewAs !== "admin" ? "#7dd105" : "rgba(255,255,255,.7)",
               width: 36, height: 36, borderRadius: 8, cursor: "pointer", fontSize: 16,
-              display: "none", alignItems: "center", justifyContent: "center"
+              alignItems: "center", justifyContent: "center"
             }}>
               {{"admin":"👑","viewer":"👁️","comercial":"🏭","security":"🛡️"}[viewAs]}
             </button>
